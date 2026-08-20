@@ -30,7 +30,8 @@ verified on real hardware, not just implemented and assumed correct.
 | Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
 | Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
 | Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
-| **Recognition against any real poker platform** | ❌ Not done | see below — this is the actual next milestone |
+| Hero-card recognition on a real platform (WePoker H5) | ✅ Calibrated and measured | 48/48 on held-out real captures — see [Real-platform calibration](#real-platform-calibration) |
+| Board cards / pot / street on a real platform | ❌ Not done | only the hero-card region has been calibrated so far |
 | Strategy / opponent modeling / LLM reasoning / decision output | ❌ Not started | intentionally deferred — see [Roadmap](#roadmap) |
 
 ### Real-world vision proof
@@ -49,9 +50,46 @@ pot        : 42        ✓ correct, confidence 0.95
 ```
 
 This is real evidence, not synthetic self-validation — but it is **not** evidence about
-any specific real poker client's card skin, layout, or rendering. That calibration step
-(ROI mapping + template capture against a real platform) hasn't happened yet; see
-[Roadmap](#roadmap).
+any specific real poker client's card skin, layout, or rendering. That step is covered
+separately, below.
+
+### Real-platform calibration
+
+Calibrated against a live **WePoker H5** table: real screen captures via
+`QuartzBackend`, hero-card ROIs measured from those captures
+(`configs/platform/wepoker__h5_2max.json`), and rank/suit templates cut from real card
+art (`configs/vision/wepoker/`).
+
+Measured on 62 real card captures with verified ground truth, then re-measured with
+every template-source image excluded:
+
+| Metric | Whole-card matching | Corner-glyph matching |
+|---|---|---|
+| Rank | 98.1% | **100%** |
+| Suit — red (♥♦) | 95.7% | **100%** |
+| Suit — black (♣♠) | 48.3% | **100%** |
+| Full card | 67.3% | **100%** |
+
+Held-out result: **48/48** (25 distinct cards, 30 of them black-suited).
+
+The 48% black-suit score was not noise — clubs and spades collapsed into each other
+almost one-directionally. Two concrete causes, both found by inspecting the actual
+pixels rather than tuning thresholds:
+
+1. Slicing the card corner at a fixed offset cut into the bottom of the rank glyph and
+   truncated the suit glyph, so every template carried a fragment of an unrelated digit.
+2. The large centre pip bleeds into the same x-range as the corner index, which made the
+   club template wider than the spade template; `matchTemplate` then rescaled one to the
+   other's aspect ratio, destroying the shape difference it was supposed to measure.
+
+[`corner_glyph_recognizer.py`](src/poker_engine/perceptual/vision/corner_glyph_recognizer.py)
+fixes both by locating glyphs with connected components instead of fixed offsets,
+rejecting table felt by colour, and letterboxing every glyph onto a fixed grid before
+matching. It's a separate `CardRecognizer` Protocol implementation, so it plugs in
+without touching the sealed template matcher.
+
+Regression tests run against committed real-capture fixtures
+(`tests/vision/fixtures/wepoker/`), all of them held-out samples.
 
 ---
 
@@ -176,20 +214,20 @@ to be precise about which parts generalize across poker platforms and which don'
 So: layout detection and occupancy detection are already general-purpose; card identity
 is not — it's bound to whatever screenshots the templates were cut from.
 
-**The open question is whether that's acceptable long-term**, or whether recognition
-should generalize to arbitrary platforms without per-platform template calibration. The
-realistic way to get there is a vision-language model (VLM) — prompt a multimodal model
-with the frame and ask what the cards/pot are, instead of pixel-matching. That
-genuinely generalizes across skins with no calibration step, at the cost of latency
-(hundreds of ms to seconds vs. ~12ms today), a per-call cost, a network dependency, and
-less deterministic output than template matching. Notably, the architecture already
-reserves a slot for exactly this: the Fast/Slow path split (`architecture.md` §4) was
-designed for "cache/deterministic path now, LLM/Solver path later" — a VLM recognizer is
-a natural Slow Path candidate, not a rewrite of the Fast Path.
+The current decision is **calibrate per platform**, starting with WePoker (done for hero
+cards — see [Real-platform calibration](#real-platform-calibration)). Adding a platform
+means capturing its table, measuring ROIs, and cutting ~17 glyph templates from its card
+art; the recognizer code itself is unchanged.
 
-This hasn't been decided. It's a real scope call (calibrate-per-platform now vs. invest
-in VLM-based general recognition) that changes the size of the next milestone
-significantly, and is being discussed outside of this repo before committing either way.
+**The longer-term open question** is whether recognition should generalize to arbitrary
+platforms with no calibration at all. The realistic way there is a vision-language model
+(VLM) — prompt a multimodal model with the frame and ask what the cards/pot are, instead
+of pixel-matching. That generalizes across skins with no calibration step, at the cost of
+latency (hundreds of ms to seconds vs. ~12ms today), a per-call cost, a network
+dependency, and less deterministic output. The architecture already reserves a slot for
+exactly this: the Fast/Slow path split (`architecture.md` §4) was designed for
+"cache/deterministic path now, LLM/Solver path later" — a VLM recognizer is a natural
+Slow Path candidate, not a rewrite of the Fast Path.
 
 ---
 
@@ -234,10 +272,9 @@ origin v0.1.0`).
 
 Deliberately sequenced so nothing gets built on an unproven foundation:
 
-1. **Calibrate against a real, low-risk target** — pick a target that isn't a real-money
-   platform with ToS/legal exposure (see project notes), capture real screenshots, build
-   real ROI + card-template calibration, and measure real recognition accuracy for the
-   first time.
+1. **Finish real-platform calibration** — hero cards are done (see above). Board cards,
+   pot amount, and street detection still need ROI calibration and accuracy measurement
+   against a real table.
 2. **Wire the desktop app to live capture** — replace the scripted demo stream with the
    real `RealtimePipeline`, so the companion window shows a real, currently-playing hand.
 3. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
