@@ -61,24 +61,33 @@ v0.2 在 v0.1 基础上增加三个关键角色：
    ├── UI（纯消费者）
    └── Application Orchestrator（调度，无算法）
 
- REASONING LAYER
+ REASONING LAYER（未实现）
    ├── Decision Engine（融合出口）
    ├── Strategy Engine（策略来源管理）
    │     └── Solver Adapter（TexasSolver / Mock）
    ├── Poker Reasoning Layer（LLM / PokerSkill Adapter）
    ├── Opponent Model（对手画像）
-   └── Equity Engine（赢率/赔率）
+   └── Equity Engine（赢率/赔率）── 已实现（枚举 + 蒙特卡洛 + pot odds + 范围）
 
- DOMAIN LAYER
+ REALTIME LAYER（已实现，2026-08 接手时补录进本文档）
+   ├── FrameSource（Synthetic / 真实 CaptureService 注入）
+   ├── ChangeDetector（状态有效变化检测，避免每帧都跑 State/Equity）
+   └── RealtimePipeline（驱动循环：Capture → Vision → ChangeDetector → Orchestrator → Equity）
+
+ DOMAIN LAYER（已实现）
    ├── State Engine（纯函数）
    └── Hand Memory（事件溯源 / 查询 / 回放）
 
- PERCEPTION LAYER
+ PERCEPTION LAYER（已实现）
    ├── Vision Engine（带置信度证据）
-   └── Capture Service
+   └── Capture Service（FakeBackend / MssBackend[Windows] / QuartzBackend[macOS]）
 ```
 
-**依赖铁律**：严格单向向下。Orchestrator 是所有模块的调用方；State 与 Hand Memory 之间无直接依赖（由 Orchestrator 负责联动）；Decision Engine 是唯一对外产出 `Decision` 的出口。
+**依赖铁律**：严格单向向下。Orchestrator 是所有模块的调用方；State 与 Hand Memory 之间无直接依赖（由 Orchestrator 负责联动）；Decision Engine 是唯一对外产出 `Decision` 的出口；Realtime 层位于 Orchestrator 之上，驱动整条链路但不实现任何算法。
+
+> 本图 2026-08 接手时核对过一次代码：v0.2.1 原文没有 Realtime Layer（Task 8 是后补的），Vision/Capture
+> 子模块的真实文件名也和 §3 目录结构不完全一致（见 §3 开头的说明）。已在此处同步，§3 保留原始规划
+> 供历史参照，不代表当前真实文件布局。
 
 ---
 
@@ -96,6 +105,13 @@ v0.2 在 v0.1 基础上增加三个关键角色：
 ---
 
 # 3. 项目目录结构
+
+> 以下是 v0.2 时期的原始规划，保留作历史参照。**实际文件布局已经分叉**（例如 Vision 子模块的真实
+> 文件名是 `card_recognizer.py`/`amount_recognizer.py`/`board_slot_detector.py` 等，不是这里写的
+> `card_detect.py`/`text_ocr.py`；`memory/` 实际只有 `hand_memory.py` + `errors.py`，没有拆分成
+> `event_store.py`/`hand_history.py`/`repository.py`/`replay.py`；`strategy/`/`opponent/`/
+> `reasoning/`/`ui/`/`infra/` 均未创建）。要看当前真实结构，直接看仓库 `src/poker_engine/` 或
+> `README.md` 的模块总览表。
 
 ```
 poker-intelligence-engine/

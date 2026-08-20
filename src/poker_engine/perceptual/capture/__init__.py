@@ -9,6 +9,7 @@ from .base import (
 )
 from .fake_backend import FakeBackend
 from .mss_backend import MssBackend
+from .quartz_backend import QuartzBackend
 
 __all__ = [
     "CaptureError",
@@ -18,4 +19,5 @@ __all__ = [
     "WindowRect",
     "FakeBackend",
     "MssBackend",
+    "QuartzBackend",
 ]

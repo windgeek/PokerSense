@@ -22,11 +22,14 @@ dependencies = [
 dev = [
     "pytest",
     "pytest-cov",
+    "flake8",
 ]
-# Windows capture backend (real screen capture for the perceptual layer).
-# CI and pure-unit tests use FakeBackend and do not need mss.
+# Real screen capture backends for the perceptual layer (Windows: mss +
+# user32; macOS: pyobjc Quartz). CI and pure-unit tests use FakeBackend and
+# do not need either.
 perceptual = [
     "mss>=9.0",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
 ]
 # Engineering calibration tool (tools/calibrate.py). Must match the pinned
 # opencv-python to avoid resolving a conflicting OpenCV version.
