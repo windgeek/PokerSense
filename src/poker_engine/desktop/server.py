@@ -10,6 +10,7 @@ contract (``serialize.analysis_to_dict``) and the frontend do not change.
 
 from __future__ import annotations
 
+import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Callable
@@ -22,10 +23,21 @@ from poker_engine.realtime.analysis import RealtimeAnalysis
 from .demo import demo_analysis_stream
 from .serialize import analysis_to_dict
 
-# ui/ lives at the repo root, not inside the installed package -- fine for
-# running from a checkout; a packaged (PyInstaller) build must bundle it as
-# a data directory and adjust this path. See project roadmap Phase 3.
-_UI_DIR = Path(__file__).resolve().parents[3] / "ui"
+
+def _resolve_ui_dir() -> Path:
+    """Find ``ui/`` in a dev checkout or inside a PyInstaller bundle.
+
+    PyInstaller extracts bundled data files under ``sys._MEIPASS`` at
+    runtime (a temp dir, not the source tree) -- see ``pyinstaller.spec``'s
+    ``datas`` entry, which bundles ``ui/`` as ``ui/`` relative to that root.
+    """
+    frozen_base = getattr(sys, "_MEIPASS", None)
+    if frozen_base is not None:
+        return Path(frozen_base) / "ui"
+    return Path(__file__).resolve().parents[3] / "ui"
+
+
+_UI_DIR = _resolve_ui_dir()
 
 AnalysisStreamFactory = Callable[[], AsyncIterator[RealtimeAnalysis]]
 

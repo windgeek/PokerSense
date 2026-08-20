@@ -1,6 +1,6 @@
 PYTHON ?= python
 
-.PHONY: install test lint clean run-desktop run-desktop-server
+.PHONY: install test lint clean run-desktop run-desktop-server package
 
 install:
 	$(PYTHON) -m pip install -e ".[dev]"
@@ -23,3 +23,10 @@ run-desktop:
 # Server only (no native window) -- useful for previewing ui/ in a browser.
 run-desktop-server:
 	$(PYTHON) -m poker_engine.desktop.server
+
+# Build a local .app (macOS) / folder (Windows) via PyInstaller. Needs the
+# `packaging` extra: pip install -e ".[dev,desktop,packaging]".
+# CI builds + signs/notarizes both platforms on every push -- see
+# .github/workflows/build-desktop.yml.
+package:
+	pyinstaller packaging/pokersense.spec --distpath dist --workpath build --noconfirm
