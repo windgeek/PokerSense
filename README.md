@@ -1,5 +1,7 @@
 # PokerSense
 
+**English** | [简体中文](README.zh-CN.md)
+
 **A real-time Texas Hold'em analysis assistant.** It watches a poker table (via screen
 capture), recognizes the game state, computes equity, and shows the result in a live
 desktop companion window — so a player can see win rate, street, and confidence while
@@ -27,7 +29,7 @@ verified on real hardware, not just implemented and assumed correct.
 | Vision recognition (OpenCV template matching: cards, street, pot) | ✅ Verified against real pixels | see [Real-world vision proof](#real-world-vision-proof) below |
 | Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
 | Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
-| Packaging (macOS `.app`, Windows folder, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
+| Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
 | **Recognition against any real poker platform** | ❌ Not done | see below — this is the actual next milestone |
 | Strategy / opponent modeling / LLM reasoning / decision output | ❌ Not started | intentionally deferred — see [Roadmap](#roadmap) |
 
