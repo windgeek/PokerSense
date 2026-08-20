@@ -22,30 +22,28 @@
 | Confidence Gate（低置信度字段降级为 `UNKNOWN`，绝不瞎猜） | ✅ 完成 | 单元测试 |
 | 截屏后端 — Windows（`MssBackend`） | ✅ 已实现 | 单元测试通过；尚未在真实 Windows 桌面上跑过 |
 | 截屏后端 — macOS（`QuartzBackend`） | ✅ 已实现并验证 | 在真实硬件上截取过真实的屏幕窗口 |
-| 视觉识别（OpenCV 模板匹配：牌面/街道/底池） | ✅ 已用真实像素验证 | 见下方 [真实世界视觉验证](#真实世界视觉验证) |
+| 视觉识别（OpenCV 模板匹配） | ✅ 已用真实像素验证 | 见下方 [真实平台标定](#真实平台标定) |
 | 实时链路（Capture → Vision → State → Equity，单一事件循环） | ✅ 可运行 | 由真实截屏驱动，端到端跑通 |
 | 桌面 UI（伴随窗口，实时刷新） | ✅ 可运行 | FastAPI + WebSocket 后端，HTML/CSS/JS 前端，已验证实时生效 |
+| 桌面 App 由**真实截屏**驱动 | ✅ 可运行 | 从真实窗口识别底牌并计算真实胜率——App 里没有任何写死的演示数据 |
 | 打包（macOS `.dmg`、Windows 安装包 `.exe`，通过 GitHub Actions） | ✅ 可运行 | CI 构建与打 tag 发布均已成功 |
 | 真实平台底牌识别（WePoker H5） | ✅ 已标定并实测 | 留出样本 48/48 全对——见 [真实平台标定](#真实平台标定) |
 | 真实平台的公共牌 / 底池 / 街道识别 | ❌ 未完成 | 目前只标定了底牌区域 |
 | 策略建议 / 对手画像 / LLM 推理 / 决策输出 | ❌ 未开始 | 有意延后，见 [路线图](#路线图) |
 
-### 真实世界视觉验证
+### 置信度是"挣来的"，不是"定出来的"
 
-此前所有关于 Vision Engine 的"准确率"数字，测的都是脚本生成的合成图片——从没有一张真实截图。为了
-弄清楚识别代码在真实像素上到底行不行，我们渲染了一个受控的测试牌桌
-（`tools/real_pipeline_smoke/mock_table.html`），把它当作一个真实的 macOS 屏幕窗口截了图，然后拿
-未经任何修改的 `VisionEngine` 去识别这张真实截图：
+识别器打出 62/62 **并不等于证明了 100% 准确率**——这个样本量下，95% 置信下界约为 95.8%，
+声称更高就是在编造证据。所以每个字段报出的置信度是从它自己的实测记录里**推导**出来的，
+而不是手工填的：
+[`configs/vision/wepoker/calibration.json`](configs/vision/wepoker/calibration.json)
+记录了样本数、正确数，以及区分"可读牌面"和"非牌面"的原始分数间隙（实测：非牌面 ≤0.335，
+真实牌面 ≥0.664）。`MeasuredCalibration` 据此同时算出校准后的置信度和弃权阈值，
+置信度门禁的阈值也取同一个数。
 
-```
-hero_cards : Ah, Kh    ✓ 正确，置信度 0.95
-board_cards: Qh 9h 2c 5h 7s   ✓ 正确，置信度 0.95
-street     : RIVER     ✓ 由公共牌占用情况正确推导
-pot        : 42        ✓ 正确，置信度 0.95
-```
-
-这是真实证据，不是合成数据自证自洽——但它**不能**证明在任何具体真实扑克客户端的牌面皮肤、布局、渲染
-方式上也一样准。那一部分单独说明如下。
+实际后果是：**想提高门槛，唯一的办法是采集更多经过核对的样本**；而没有任何人测量过的字段
+（公共牌、底池、街道）阈值被设为 1.0——不可能达到——所以它们只会保持 `UNKNOWN`，
+不会去蹭底牌那份测量的可信度。
 
 ### 真实平台标定
 
@@ -164,7 +162,7 @@ flowchart TB
 | Perceptual — Vision | `src/poker_engine/perceptual/vision/` | 牌面/街道/底池识别器（OpenCV 模板匹配）、ROI 映射、每个检测器各自的置信度标定。 |
 | Equity | `src/poker_engine/equity/` | 牌力评估、枚举法、蒙特卡洛、pot odds、范围胜率。 |
 | Realtime | `src/poker_engine/realtime/` | 把 capture → vision → state → equity 串起来的事件循环，带变化检测，避免空闲帧也触发重算。 |
-| Desktop | `src/poker_engine/desktop/` | FastAPI 服务（提供 UI、通过 WebSocket 推送 `RealtimeAnalysis`）+ 一个 `pywebview` 原生窗口外壳。 |
+| Desktop | `src/poker_engine/desktop/` | `live.py` 用已提交的标定组装实时截屏链路；`server.py` 提供 UI 并通过 WebSocket 推送 `RealtimeAnalysis`；`app.py` 用 `pywebview` 打开原生窗口。 |
 | UI | `ui/` | 伴随窗口本体——纯 HTML/CSS/JS，无构建步骤，无外部依赖。 |
 
 更深入的设计文档在 [`docs/`](docs/) 目录下：`core-contracts.md`、`state-engine.md`、
@@ -185,11 +183,11 @@ flowchart TB
 2. **某一格有没有牌 —— `TemplateBoardSlotDetector`。** 纯像素统计（亮度 × 边缘纹理密度），不关心
    "是哪张牌"。这一部分其实已经是跟平台无关的——不管美术风格是什么样，一块又亮又有纹理的区域就
    读作"有牌"。
-3. **这是哪张牌 —— `TemplateCardRecognizer`。** OpenCV 模板匹配：抠出这一格，跟 13 张点数模板 +
-   4 张花色模板逐一比对（`cv2.matchTemplate`），取分数最高的。**这一步才是真正锁定平台的地方**——
-   模板本身是从某一个具体平台的牌面美术上抠下来的像素图。换一套牌面皮肤/字体，这套模板就失效了
-   （今天真实踩过这个坑：同一个字形，模板裁得松一点分数只有 0.16，裁紧了能到 0.97——这套方法对
-   "像素内容裁得准不准"敏感到这个程度）。
+3. **这是哪张牌 —— `CornerGlyphCardRecognizer`。** 先分离出牌角标（上面是点数、下面是花色），
+   再把每个字形分别去和 13 张点数模板 + 4 张花色模板比对。**这一步才是真正锁定平台的地方**——
+   模板是从某个具体平台的牌面美术上抠下来的像素图，角标窗口也是那个平台的几何参数。换一套牌面
+   皮肤就要重新抠模板（约 17 张），但识别器代码本身不用改。它对像素内容的敏感程度是这样的：
+   同一个字形，模板裁松一点分数只有 0.16，裁紧了能到 0.97。
 
 所以结论是：布局识别和占用检测这两步已经是通用的了；牌面身份识别不是——它死死绑在模板当初是从
 哪张截图抠出来的。
@@ -222,7 +220,7 @@ pip install -e ".[dev,perceptual]"
 
 # 桌面 App（装 FastAPI、uvicorn、pywebview）
 pip install -e ".[dev,desktop]"
-make run-desktop           # 打开原生伴随窗口
+make run-desktop           # 打开原生伴随窗口，读取真实牌桌
 make run-desktop-server    # 只启动服务，浏览器打开 http://127.0.0.1:8765
 
 # 打包成独立 App（装 PyInstaller）
@@ -230,9 +228,13 @@ pip install -e ".[dev,desktop,packaging]"
 make package                # -> dist/PokerSense.app（macOS）或 dist/PokerSense/（Windows）
 ```
 
-现在桌面 App 里播放的是**一段写死的演示牌局**，不是真实识别——目前还没有真实的截屏识别链路接进去
-（见 [路线图](#路线图)）。现在这个版本的意义在于：整条链路的每一块都是真实的、各自独立验证过的；
-把它们端到端接到一张真实牌桌上，是下一步要做的事，不是已经做完的事。
+桌面 App 跑的是真实链路：截取牌桌窗口 → 识别底牌 → 计算该手牌的胜率。里面没有任何写死的
+演示数据。如果窗口没打开、或者没授予屏幕录制权限，App 会直接把原因显示出来，而不是编一个
+结果给你看。
+
+目前还看不到的是公共牌、底池和街道：这三块在 WePoker 上还没有实测的 ROI 坐标，所以它们读作
+`UNKNOWN`，界面上标注为"未标定"。因此显示的胜率是**翻牌前**该手牌对随机范围的胜率——
+是个真实数字，但不是完整的牌桌读取。
 
 CI（`.github/workflows/ci.yml`）在每次 push 时都会在 macOS 和 Windows 上跑完整测试套件 + lint。
 `.github/workflows/build-desktop.yml` 会给两个平台各构建一个正式的安装包——macOS 上是 `.dmg`
@@ -248,13 +250,11 @@ git push origin v0.1.0`）会自动把两个安装包发布到 GitHub Release。
 
 1. **完成真实平台标定的剩余部分** —— 底牌已完成（见上）。公共牌、底池金额、街道判断这三块还需要
    在真实牌桌上做 ROI 标定并实测准确率。
-2. **把桌面 App 接到真实截屏链路** —— 用真实的 `RealtimePipeline` 替换掉写死的演示数据流，让伴随
-   窗口显示一手正在真实进行的牌局。
-3. **Equity 性能优化** —— 蒙特卡洛路径是延迟瓶颈（纯 Python，几百毫秒量级），需要换成 C 级别的
+2. **Equity 性能优化** —— 蒙特卡洛路径是延迟瓶颈（纯 Python，几百毫秒量级），需要换成 C 级别的
    evaluator 或做向量化。
-4. **策略建议 / 对手画像 / 决策输出** —— 故意放在最后。在识别还没被证明可靠之前就给出行动建议是
+3. **策略建议 / 对手画像 / 决策输出** —— 故意放在最后。在识别还没被证明可靠之前就给出行动建议是
    真实的风险（见 `architecture.md` 里"策略建议后置于正确性"的规则）——Vision 必须先值得信任。
-5. **正式分发** —— 签名/公证的正式构建、自动更新、通过 `configs/platform/` 适配器模式支持多平台
+4. **正式分发** —— 签名/公证的正式构建、自动更新、通过 `configs/platform/` 适配器模式支持多平台
    牌面皮肤。
 
 ---

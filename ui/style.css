@@ -314,3 +314,24 @@ html, body {
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
 }
+
+.brand .dot.error {
+  background: var(--bad);
+  box-shadow: 0 0 6px var(--bad);
+}
+
+.unknown {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-faint);
+  letter-spacing: 0.02em;
+}
+
+.equity-headline .win.idle {
+  color: var(--text-faint);
+  font-size: 30px;
+}
+
+.equity-bar.idle {
+  background: var(--border);
+}

@@ -26,32 +26,31 @@ verified on real hardware, not just implemented and assumed correct.
 | Confidence Gate (low-confidence fields degrade to `UNKNOWN`, never guessed) | ✅ Done | unit tests |
 | Screen capture — Windows (`MssBackend`) | ✅ Implemented | unit-tested; not yet run against a real Windows desktop |
 | Screen capture — macOS (`QuartzBackend`) | ✅ Implemented and verified | captured a real on-screen window on real hardware |
-| Vision recognition (OpenCV template matching: cards, street, pot) | ✅ Verified against real pixels | see [Real-world vision proof](#real-world-vision-proof) below |
+| Vision recognition (OpenCV template matching) | ✅ Verified against real pixels | see [Real-platform calibration](#real-platform-calibration) below |
 | Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
 | Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
+| Desktop app driven by **real screen capture** | ✅ Working | recognizes hero cards off a live window and computes real equity — no scripted data anywhere in the app |
 | Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
 | Hero-card recognition on a real platform (WePoker H5) | ✅ Calibrated and measured | 48/48 on held-out real captures — see [Real-platform calibration](#real-platform-calibration) |
 | Board cards / pot / street on a real platform | ❌ Not done | only the hero-card region has been calibrated so far |
 | Strategy / opponent modeling / LLM reasoning / decision output | ❌ Not started | intentionally deferred — see [Roadmap](#roadmap) |
 
-### Real-world vision proof
+### Confidence is earned, not chosen
 
-Every prior "accuracy" number for the Vision Engine was measured against synthetic,
-generator-drawn images — never a real screenshot. To find out whether the recognition
-code actually works on real pixels, we rendered a controlled test table
-(`tools/real_pipeline_smoke/mock_table.html`), captured it as a genuine on-screen macOS
-window, and ran the unmodified `VisionEngine` against that capture:
+A recognizer that scores 62/62 has *not* demonstrated 100% accuracy — with that sample
+size the 95% confidence lower bound is about 95.8%, and claiming more would be inventing
+evidence. So the confidence a field reports is derived from its recorded measurement
+rather than picked by hand:
+[`configs/vision/wepoker/calibration.json`](configs/vision/wepoker/calibration.json)
+stores the sample count, the correct count, and the raw-score gap separating readable
+cards from non-cards (observed: non-cards scored ≤0.335, real cards ≥0.664).
+`MeasuredCalibration` turns that into both the calibrated confidence and the abstain
+floor, and the confidence gate's threshold is set to the same figure.
 
-```
-hero_cards : Ah, Kh    ✓ correct, confidence 0.95
-board_cards: Qh 9h 2c 5h 7s   ✓ correct, confidence 0.95
-street     : RIVER     ✓ correctly derived from board occupancy
-pot        : 42        ✓ correct, confidence 0.95
-```
-
-This is real evidence, not synthetic self-validation — but it is **not** evidence about
-any specific real poker client's card skin, layout, or rendering. That step is covered
-separately, below.
+The practical consequence: **collecting more verified samples is what raises the
+threshold**, and a field nobody has measured (board, pot, street) gets a threshold of
+1.0 — unreachable — so it stays `UNKNOWN` instead of borrowing the hero-card
+measurement's credibility.
 
 ### Real-platform calibration
 
@@ -178,7 +177,7 @@ Screen  →  Capture Service  →  Frame
 | Perceptual — Vision | `src/poker_engine/perceptual/vision/` | Card/street/pot recognizers (OpenCV template matching), ROI mapping, per-detector confidence calibration. |
 | Equity | `src/poker_engine/equity/` | Hand evaluator, enumeration, Monte Carlo, pot odds, range equity. |
 | Realtime | `src/poker_engine/realtime/` | The event loop tying capture → vision → state → equity together, with change detection so idle frames don't trigger recompute. |
-| Desktop | `src/poker_engine/desktop/` | FastAPI server (serves the UI, streams `RealtimeAnalysis` over WebSocket) + a `pywebview` native window shell. |
+| Desktop | `src/poker_engine/desktop/` | `live.py` assembles the live-capture pipeline from committed calibration; `server.py` serves the UI and streams `RealtimeAnalysis` over WebSocket; `app.py` opens it in a `pywebview` native window. |
 | UI | `ui/` | The companion window itself — plain HTML/CSS/JS, no build step, no external dependencies. |
 
 Deeper design docs live in [`docs/`](docs/): `core-contracts.md`, `state-engine.md`,
@@ -202,14 +201,14 @@ to be precise about which parts generalize across poker platforms and which don'
    (brightness × edge-texture density), no knowledge of *which* card. This part is
    already platform-agnostic — a bright, textured region reads as "occupied" regardless
    of art style.
-3. **Which card it is — `TemplateCardRecognizer`.** OpenCV template matching: crop the
-   slot, compare against 13 rank templates and 4 suit templates via
-   `cv2.matchTemplate`, take the best score. **This is the part that's actually
-   platform-specific** — the templates are pixel crops taken from one specific
-   platform's card art. A different card skin/font means the templates stop matching
-   (verified the hard way today: a loosely-cropped template scored 0.16 vs. 0.97 for a
-   tightly-cropped one of the *same* glyph — this approach is that sensitive to exact
-   pixel content).
+3. **Which card it is — `CornerGlyphCardRecognizer`.** Isolates the card's corner index
+   (rank above, suit below) and matches each glyph against 13 rank and 4 suit templates.
+   **This is the part that's actually platform-specific** — the templates are pixel crops
+   taken from one specific platform's card art, and the corner window is that platform's
+   geometry. A different card skin means new templates (about 17 crops), though the
+   recognizer code is unchanged. It is that sensitive to exact pixel content: a
+   loosely-cropped template scored 0.16 against 0.97 for a tight crop of the *same*
+   glyph.
 
 So: layout detection and occupancy detection are already general-purpose; card identity
 is not — it's bound to whatever screenshots the templates were cut from.
@@ -246,7 +245,7 @@ pip install -e ".[dev,perceptual]"
 
 # Desktop app (adds FastAPI, uvicorn, pywebview)
 pip install -e ".[dev,desktop]"
-make run-desktop           # opens the native companion window
+make run-desktop           # native companion window, reading a live table
 make run-desktop-server    # server only, open http://127.0.0.1:8765 in a browser
 
 # Package into a standalone app (adds PyInstaller)
@@ -254,10 +253,15 @@ pip install -e ".[dev,desktop,packaging]"
 make package                # -> dist/PokerSense.app (macOS) or dist/PokerSense/ (Windows)
 ```
 
-Right now the desktop app streams a **scripted demo hand**, not live recognition — there
-is no real capture pipeline wired into it yet (see [Roadmap](#roadmap)). The point of
-today's build is that every piece of the pipeline is real and independently verified;
-connecting them end-to-end against a live table is the next step, not a finished one.
+The desktop app runs the real pipeline: it captures the poker window, recognizes the
+hero cards, and computes equity for the recognized hand. There is no scripted demo data
+in it. If the window is not open, or screen-recording permission has not been granted,
+the app says so rather than showing anything invented.
+
+What it does *not* show yet is board cards, pot or street: those have no measured ROIs
+for WePoker, so they read `UNKNOWN` and the app labels them "not calibrated". The equity
+displayed is therefore preflop equity for the hero hand against a random range — a real
+number, but not a full table read.
 
 CI (`.github/workflows/ci.yml`) runs the full test suite + lint on both macOS and Windows
 on every push. `.github/workflows/build-desktop.yml` builds a proper installer for each
@@ -275,14 +279,12 @@ Deliberately sequenced so nothing gets built on an unproven foundation:
 1. **Finish real-platform calibration** — hero cards are done (see above). Board cards,
    pot amount, and street detection still need ROI calibration and accuracy measurement
    against a real table.
-2. **Wire the desktop app to live capture** — replace the scripted demo stream with the
-   real `RealtimePipeline`, so the companion window shows a real, currently-playing hand.
-3. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
+2. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
    a few hundred ms); replace with a C-level evaluator or vectorize.
-4. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
+3. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
    advice before recognition is proven reliable is a real risk (see `architecture.md`'s
    "strategy comes after correctness" rule) — Vision has to be trustworthy first.
-5. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
+4. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
    support via the `configs/platform/` adapter pattern.
 
 ---

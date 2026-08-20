@@ -1,28 +1,139 @@
+"""Wire-contract tests for the engine -> UI JSON payload."""
+
 from __future__ import annotations
 
+import cv2
 import pytest
 
-from poker_engine.desktop.demo import DEMO_SEQUENCE
+from pathlib import Path
+
 from poker_engine.desktop.serialize import analysis_to_dict
 
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_CARD_FIXTURES = _REPO_ROOT / "tests" / "vision" / "fixtures" / "wepoker"
 
-def test_analysis_to_dict_matches_wire_contract():
-    d = analysis_to_dict(DEMO_SEQUENCE[1])  # flop step
-    assert d["frame_seq"] == 2
-    assert d["state"]["street"] == "flop"
-    assert d["state"]["hero_cards"] == ["Ah", "Kh"]
-    assert d["state"]["board_cards"] == ["Qh", "9h", "2c"]
-    assert d["state"]["pot"] == "6"
-    assert d["equity"] == {"win_rate": 0.71, "tie_rate": 0.01}
-    assert d["confidence"]["overall_confidence"] == 0.95
-    assert ["bet_size", "low_confidence"] in d["confidence"]["field_status"]
+# The hero cards the assembled frame contains, in slot order.
+_HERO = ("QD", "TS")
 
 
-def test_analysis_to_dict_is_json_serializable():
+def _build_table_frame_image():
+    """A full-size window frame carrying real card art at real coordinates.
+
+    Assembled rather than committed as a screenshot: a raw capture of a live
+    table also contains browser chrome, bookmarks and another player's
+    username, none of which belongs in this repository. The card crops are
+    genuine captures and the paste positions come from the committed
+    TableMap, so the geometry under test is the real thing.
+    """
     import json
 
-    for analysis in DEMO_SEQUENCE:
-        json.dumps(analysis_to_dict(analysis))  # must not raise
+    import numpy as np
+
+    from poker_engine.perceptual.vision.card_layout import hero_layout_from_dict
+    from poker_engine.perceptual.vision.table_map import TableMap
+
+    table_map = TableMap.from_json(
+        (_REPO_ROOT / "configs" / "platform" / "wepoker__h5_2max.json").read_text()
+    )
+    width, height = table_map.reference_size
+    # Table felt, sampled from a real capture.
+    image = np.full((height, width, 3), (74, 110, 61), dtype=np.uint8)
+
+    hero_roi = next(r for r in table_map.rois if r.kind.value == "hero_cards")
+    hero_layout = hero_layout_from_dict(
+        json.loads(
+            (_REPO_ROOT / "configs" / "vision" / "wepoker" / "hero_slot_layout.json")
+            .read_text()
+        )
+    )
+    rx, ry = int(hero_roi.x * width), int(hero_roi.y * height)
+    rw, rh = int(hero_roi.width * width), int(hero_roi.height * height)
+    for label, sub in zip(_HERO, hero_layout.slots):
+        card = cv2.imread(str(_CARD_FIXTURES / f"{label}.png"))
+        assert card is not None, f"card fixture missing: {label}"
+        x0, y0 = rx + int(sub.x * rw), ry + int(sub.y * rh)
+        image[y0:y0 + card.shape[0], x0:x0 + card.shape[1]] = card
+    return image
+
+
+@pytest.fixture(scope="module")
+def live_analysis():
+    """A RealtimeAnalysis produced by the real pipeline from real card art.
+
+    Uses the committed calibration and the production pipeline, so this
+    exercises the same path the desktop app runs — no scripted stand-in.
+    """
+    from datetime import datetime, timezone
+
+    from poker_engine.desktop.live import (
+        _seed_state,
+        build_confidence_gate,
+        load_calibration,
+        load_measured_calibration,
+    )
+    from poker_engine.memory.hand_memory import InMemoryHandMemory
+    from poker_engine.orchestrator import ApplicationOrchestrator
+    from poker_engine.perceptual.capture.base import Frame, WindowRect
+    from poker_engine.realtime.frame_source import SyntheticFrameSource
+    from poker_engine.realtime.pipeline import RealtimePipeline
+    from poker_engine.state_engine.engine import StateEngine
+
+    image = _build_table_frame_image()
+    height, width = image.shape[:2]
+    frame = Frame(
+        frame_seq=0,
+        timestamp=datetime(2026, 8, 20, tzinfo=timezone.utc),
+        window_id="WePoker-H5",
+        window_rect=WindowRect(0, 34, width, height),
+        image=image,
+        width=width,
+        height=height,
+    )
+    table_map, vision = load_calibration()
+    measured = load_measured_calibration(_REPO_ROOT / "configs" / "vision" / "wepoker")
+    orchestrator = ApplicationOrchestrator(
+        StateEngine(), InMemoryHandMemory(), build_confidence_gate(measured)
+    )
+    orchestrator.start_hand(_seed_state())
+    pipeline = RealtimePipeline(
+        SyntheticFrameSource((frame,)), vision, table_map, orchestrator
+    )
+    step = pipeline.step()
+    assert step is not None
+    return step.analysis
+
+
+def test_recognizes_hero_cards_from_real_capture(live_analysis):
+    """Real card art at real coordinates must survive the whole pipeline."""
+    assert [str(c) for c in live_analysis.state.hero_cards] == ["Qd", "Ts"]
+
+
+def test_equity_is_computed_for_the_recognized_hand(live_analysis):
+    equity = live_analysis.equity
+    assert 0.0 < equity.win_rate < 1.0
+    assert 0.0 <= equity.tie_rate < 1.0
+
+
+def test_uncalibrated_fields_stay_unknown(live_analysis):
+    """Board/pot/street have no measured ROIs, so they must not be claimed."""
+    status = dict(live_analysis.confidence.field_status)
+    assert status["hero_cards"] == "valid"
+    for field in ("board_cards", "street", "pot", "stacks", "bet_size", "action"):
+        assert status[field] == "unknown", f"{field} claimed without calibration"
+
+
+def test_analysis_to_dict_matches_wire_contract(live_analysis):
+    payload = analysis_to_dict(live_analysis)
+    assert payload["state"]["hero_cards"] == ["Qd", "Ts"]
+    assert isinstance(payload["state"]["pot"], str)
+    assert isinstance(payload["equity"]["win_rate"], float)
+    assert isinstance(payload["confidence"]["field_status"], list)
+
+
+def test_analysis_to_dict_is_json_serializable(live_analysis):
+    import json
+
+    json.dumps(analysis_to_dict(live_analysis))
 
 
 def test_analysis_to_dict_rejects_wrong_type():
@@ -30,15 +141,10 @@ def test_analysis_to_dict_rejects_wrong_type():
         analysis_to_dict({"not": "an analysis"})
 
 
-def test_create_app_mounts_ui_and_ws():
+def test_create_app_serves_ui_and_ws_route():
     pytest.importorskip("fastapi")
-    from fastapi.testclient import TestClient
-
     from poker_engine.desktop.server import create_app
 
     app = create_app()
-    client = TestClient(app)
-    with client.websocket_connect("/ws") as ws:
-        payload = ws.receive_json()
-        assert payload["frame_seq"] == 1
-        assert payload["state"]["street"] == "preflop"
+    routes = {getattr(r, "path", None) for r in app.routes}
+    assert "/ws" in routes

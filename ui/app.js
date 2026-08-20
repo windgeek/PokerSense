@@ -31,6 +31,7 @@ const els = {
   tieRate: document.getElementById("tie-rate"),
   segWin: document.getElementById("seg-win"),
   segTie: document.getElementById("seg-tie"),
+  equityBar: document.querySelector(".equity-bar"),
   confidenceBadge: document.getElementById("confidence-badge"),
   confidenceValue: document.getElementById("confidence-value"),
   confidenceFields: document.getElementById("confidence-fields"),
@@ -68,25 +69,35 @@ function renderCardSlots(container, cards, slotCount, animateFromIndex) {
   }
 }
 
+function statusOf(analysis, field) {
+  const entry = (analysis.confidence.field_status || []).find((e) => e[0] === field);
+  return entry ? entry[1] : "unknown";
+}
+
 function equityTier(rate) {
   if (rate >= 0.55) return "";
   if (rate >= 0.35) return "mid";
   return "low";
 }
 
-function render(analysis, mode) {
-  els.connDot.className = "dot " + (mode === "live" ? "live" : "demo");
-  els.connLabel.textContent = mode === "live" ? "PokerSense" : "PokerSense · demo data";
+function render(analysis) {
+  els.connDot.className = "dot live";
+  els.connLabel.textContent = "PokerSense";
 
   const state = analysis.state;
-  els.streetBadge.textContent = state.street;
+  els.streetBadge.textContent =
+    statusOf(analysis, "street") === "valid" ? state.street : "—";
 
   renderCardSlots(els.boardSlots, state.board_cards, 5, lastBoardCount);
   lastBoardCount = state.board_cards.length;
   renderCardSlots(els.heroSlots, state.hero_cards, 2);
 
-  els.potValue.innerHTML = `${state.pot}<span class="unit">bb</span>`;
+  const potKnown = statusOf(analysis, "pot") === "valid";
+  els.potValue.innerHTML = potKnown
+    ? `${state.pot}<span class="unit">bb</span>`
+    : '<span class="unknown">not calibrated</span>';
 
+  els.equityBar.classList.remove("idle");
   const winPct = analysis.equity.win_rate * 100;
   const tiePct = analysis.equity.tie_rate * 100;
   els.winRate.textContent = winPct.toFixed(1) + "%";
@@ -114,111 +125,77 @@ function render(analysis, mode) {
   els.footerRight.textContent = new Date().toLocaleTimeString();
 }
 
-// --- demo fallback: a scripted preflop -> river hand, looping ---
+// --- empty state ---
 
-const DEMO_SEQUENCE = [
-  {
-    frame_seq: 1,
-    state: { street: "preflop", hero_cards: ["Ah", "Kh"], board_cards: [], pot: "1.5" },
-    equity: { win_rate: 0.64, tie_rate: 0.02 },
-    confidence: {
-      overall_confidence: 0.98,
-      field_status: [
-        ["hero_cards", "valid"], ["board_cards", "valid"], ["street", "valid"],
-        ["pot", "valid"], ["stacks", "valid"], ["bet_size", "valid"], ["action", "valid"],
-      ],
-    },
-  },
-  {
-    frame_seq: 2,
-    state: { street: "flop", hero_cards: ["Ah", "Kh"], board_cards: ["Qh", "9h", "2c"], pot: "6" },
-    equity: { win_rate: 0.71, tie_rate: 0.01 },
-    confidence: {
-      overall_confidence: 0.95,
-      field_status: [
-        ["hero_cards", "valid"], ["board_cards", "valid"], ["street", "valid"],
-        ["pot", "valid"], ["stacks", "valid"], ["bet_size", "low_confidence"], ["action", "valid"],
-      ],
-    },
-  },
-  {
-    frame_seq: 3,
-    state: { street: "turn", hero_cards: ["Ah", "Kh"], board_cards: ["Qh", "9h", "2c", "5h"], pot: "18" },
-    equity: { win_rate: 0.86, tie_rate: 0.01 },
-    confidence: {
-      overall_confidence: 0.97,
-      field_status: [
-        ["hero_cards", "valid"], ["board_cards", "valid"], ["street", "valid"],
-        ["pot", "valid"], ["stacks", "valid"], ["bet_size", "valid"], ["action", "valid"],
-      ],
-    },
-  },
-  {
-    frame_seq: 4,
-    state: { street: "river", hero_cards: ["Ah", "Kh"], board_cards: ["Qh", "9h", "2c", "5h", "7s"], pot: "42" },
-    equity: { win_rate: 0.91, tie_rate: 0.0 },
-    confidence: {
-      overall_confidence: 0.6,
-      field_status: [
-        ["hero_cards", "valid"], ["board_cards", "conflict"], ["street", "valid"],
-        ["pot", "valid"], ["stacks", "unknown"], ["bet_size", "valid"], ["action", "valid"],
-      ],
-    },
-  },
-];
-
-let demoTimer = null;
-
-function startDemoLoop() {
-  if (demoTimer !== null) return;
-  lastBoardCount = 0;
-  let i = 0;
-  render(DEMO_SEQUENCE[0], "demo");
-  demoTimer = setInterval(() => {
-    i = (i + 1) % DEMO_SEQUENCE.length;
-    if (i === 0) lastBoardCount = 0;
-    render(DEMO_SEQUENCE[i], "demo");
-  }, 3200);
+function renderEmpty() {
+  renderCardSlots(els.boardSlots, [], 5);
+  renderCardSlots(els.heroSlots, [], 2);
+  els.streetBadge.textContent = "—";
+  els.potValue.innerHTML = '<span class="unknown">—</span>';
+  els.winRate.textContent = "—";
+  els.winRate.className = "win idle";
+  els.tieRate.textContent = "tie —";
+  els.segWin.style.width = "0%";
+  els.segTie.style.width = "0%";
+  els.equityBar.classList.add("idle");
+  els.confidenceValue.textContent = "confidence —";
+  els.confidenceBadge.style.background = "var(--text-faint)";
+  els.confidenceFields.innerHTML = "";
+  for (const [field, label] of FIELD_ORDER) {
+    const dot = document.createElement("span");
+    dot.className = "field-dot";
+    dot.title = `${label}: no data`;
+    dot.dataset.status = "unknown";
+    els.confidenceFields.appendChild(dot);
+  }
+  els.footerLeft.textContent = "frame —";
+  els.footerRight.textContent = "—";
 }
 
-function stopDemoLoop() {
-  if (demoTimer !== null) {
-    clearInterval(demoTimer);
-    demoTimer = null;
-  }
+// --- connection status ---
+
+function showStatus(message, tone) {
+  els.connDot.className = "dot " + (tone || "");
+  els.connLabel.textContent = message;
 }
 
 // --- live connection ---
 
 function connect() {
   const url = (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws";
+  showStatus("PokerSense · connecting", "");
+
   let socket;
   try {
     socket = new WebSocket(url);
   } catch (e) {
-    startDemoLoop();
+    showStatus("PokerSense · cannot reach engine", "error");
     return;
   }
 
-  const fallbackTimer = setTimeout(startDemoLoop, 1500);
+  socket.onopen = () => showStatus("PokerSense · waiting for table", "");
 
-  socket.onopen = () => clearTimeout(fallbackTimer);
   socket.onmessage = (event) => {
-    clearTimeout(fallbackTimer);
+    let payload;
     try {
-      const analysis = JSON.parse(event.data);
-      stopDemoLoop(); // once real data arrives, it wins permanently
-      render(analysis, "live");
+      payload = JSON.parse(event.data);
     } catch (e) {
-      // ignore malformed frame
+      return; // ignore malformed frame
     }
+    if (payload.error) {
+      showStatus(payload.error, "error");
+      return;
+    }
+    render(payload);
   };
-  socket.onerror = () => {
-    clearTimeout(fallbackTimer);
-  };
+
+  socket.onerror = () => showStatus("PokerSense · connection error", "error");
+
   socket.onclose = () => {
-    startDemoLoop();
+    showStatus("PokerSense · engine disconnected, reconnecting", "error");
+    setTimeout(connect, 3000);
   };
 }
 
+renderEmpty();
 connect();

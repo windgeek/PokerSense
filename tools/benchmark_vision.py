@@ -13,13 +13,16 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Mapping
 
 sys.path.insert(0, "src")
+
+from poker_engine.perceptual.vision.calibration import (  # noqa: E402
+    wilson_lower_bound_95,
+)
 
 # Frozen acceptance thresholds (field name -> target accuracy). Read-only.
 FROZEN_TARGETS = MappingProxyType({
@@ -69,20 +72,12 @@ class FieldMetric:
         return self.negative_fp / self.negative_total
 
     def lower_bound_95(self) -> float:
-        """One-sided 95% confidence lower bound (Wilson, no continuity corr).
+        """One-sided 95% confidence lower bound over the readable samples.
 
-        Computed over the readable sample set (the Frozen accuracy denominator).
+        Shared with the production confidence calibrator so a benchmark and a
+        live run can never disagree about what a sample count supports.
         """
-        if self.total == 0:
-            return 0.0
-        n = self.total
-        x = self.correct
-        z = 1.6448536269514722
-        phat = x / n
-        denom = 1 + z * z / n
-        center = phat + z * z / (2 * n)
-        margin = z * math.sqrt((phat * (1 - phat) + z * z / (4 * n)) / n)
-        return (center - margin) / denom
+        return wilson_lower_bound_95(self.correct, self.total)
 
 
 def _is_hallucination(pred) -> bool:

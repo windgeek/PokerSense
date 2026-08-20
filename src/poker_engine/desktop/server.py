@@ -1,15 +1,18 @@
-"""Local FastAPI server: serves the UI and streams analysis over WebSocket.
+"""Local FastAPI server: serves the UI and streams live analysis over WebSocket.
 
-Runs entirely on localhost -- this is a companion process for the desktop
-shell, not a network service. The ``/ws`` endpoint currently streams the
-scripted demo sequence (see ``demo.py``); swapping in a real, calibrated
-``RealtimePipeline`` later only means passing a different
-``AsyncIterator[RealtimeAnalysis]`` into :func:`create_app` -- the wire
-contract (``serialize.analysis_to_dict``) and the frontend do not change.
+Runs entirely on localhost — a companion process for the desktop shell, not
+a network service. ``/ws`` streams :class:`RealtimeAnalysis` produced from a
+real capture of the poker window (see ``live.py``).
+
+A capture problem (window not open, screen-recording permission not granted,
+window resized past the layout's tolerance) is a normal condition, not a
+crash: it is sent to the UI as a ``{"error": ...}`` frame so the user is told
+what to fix, and the stream keeps retrying.
 """
 
 from __future__ import annotations
 
+import asyncio
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -17,10 +20,11 @@ from typing import Callable
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
+from starlette.responses import Response
 
 from poker_engine.realtime.analysis import RealtimeAnalysis
 
-from .demo import demo_analysis_stream
+from .live import DEFAULT_WINDOW_TITLE, LiveCaptureError, live_analysis_stream
 from .serialize import analysis_to_dict
 
 
@@ -42,20 +46,51 @@ _UI_DIR = _resolve_ui_dir()
 AnalysisStreamFactory = Callable[[], AsyncIterator[RealtimeAnalysis]]
 
 
-def create_app(stream_factory: AnalysisStreamFactory = demo_analysis_stream) -> FastAPI:
+class _NoCacheStaticFiles(StaticFiles):
+    """Serve the UI without caching.
+
+    The UI ships inside the app bundle, so a cached copy has no upside: it
+    is never fetched over a network, and a stale one means an updated build
+    silently keeps rendering the previous version's interface.
+    """
+
+    def file_response(self, *args, **kwargs) -> Response:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
+
+# How long to wait before re-attempting capture after a recoverable failure.
+_RETRY_SECONDS = 3.0
+
+
+def _default_stream() -> AsyncIterator[RealtimeAnalysis]:
+    return live_analysis_stream(DEFAULT_WINDOW_TITLE)
+
+
+def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastAPI:
     app = FastAPI()
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket) -> None:
         await websocket.accept()
         try:
-            async for analysis in stream_factory():
-                await websocket.send_json(analysis_to_dict(analysis))
+            while True:
+                try:
+                    async for analysis in stream_factory():
+                        await websocket.send_json(analysis_to_dict(analysis))
+                except LiveCaptureError as exc:
+                    await websocket.send_json({"error": str(exc)})
+                    await asyncio.sleep(_RETRY_SECONDS)
         except WebSocketDisconnect:
             pass
 
     if _UI_DIR.is_dir():
-        app.mount("/", StaticFiles(directory=str(_UI_DIR), html=True), name="ui")
+        app.mount(
+            "/",
+            _NoCacheStaticFiles(directory=str(_UI_DIR), html=True),
+            name="ui",
+        )
 
     return app
 
