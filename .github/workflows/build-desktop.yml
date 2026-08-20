@@ -31,6 +31,10 @@ on:
 jobs:
   build-macos:
     runs-on: macos-latest
+    # `secrets` is not accessible directly inside `if:` expressions; expose
+    # it as a job-level env var once and gate on `env.*` in each step's `if:`.
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
     steps:
       - uses: actions/checkout@v4
 
@@ -47,9 +51,8 @@ jobs:
           pyinstaller packaging/pokersense.spec --distpath dist --workpath build --noconfirm
 
       - name: Import signing certificate
-        if: ${{ secrets.MACOS_CERTIFICATE != '' }}
+        if: ${{ env.MACOS_CERTIFICATE != '' }}
         env:
-          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
           MACOS_CERTIFICATE_PWD: ${{ secrets.MACOS_CERTIFICATE_PWD }}
         run: |
           KEYCHAIN_PWD=$(openssl rand -base64 24)
@@ -73,11 +76,11 @@ jobs:
             --sign "$MACOS_SIGNING_IDENTITY" dist/PokerSense.app
 
           mkdir -p ~/private_keys
-          echo "$APPLE_API_KEY" > ~/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8
+          echo "$APPLE_API_KEY" > ~/private_keys/"AuthKey_${APPLE_API_KEY_ID}.p8"
 
           ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense.zip
           xcrun notarytool submit dist/PokerSense.zip \
-            --key ~/private_keys/AuthKey_${APPLE_API_KEY_ID}.p8 \
+            --key ~/private_keys/"AuthKey_${APPLE_API_KEY_ID}.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
@@ -86,7 +89,7 @@ jobs:
           ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense-macos.zip
 
       - name: Zip (unsigned fallback)
-        if: ${{ secrets.MACOS_CERTIFICATE == '' }}
+        if: ${{ env.MACOS_CERTIFICATE == '' }}
         run: ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense-macos.zip
 
       - uses: actions/upload-artifact@v4

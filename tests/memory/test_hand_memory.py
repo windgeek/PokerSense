@@ -1,6 +1,6 @@
 """Tests for Hand Memory (InMemoryHandMemory)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -416,8 +416,12 @@ def test_start_hand_none_started_at_auto_utc():
     m = InMemoryHandMemory()
     m.start_hand("h1", _state("h1", 0), started_at=None)
     assert m.is_active("h1")
-    # started_at auto-assigned as aware UTC — verify via completed history start_time
-    h = m.complete_hand("h1", _summary(), ended_at=_aw(minute=5))
+    # started_at auto-assigned as aware UTC (relative to real now, not a
+    # fixed date — a hardcoded ended_at here would eventually be in the
+    # past relative to the auto-assigned start_time and fail spuriously).
+    h = m.complete_hand(
+        "h1", _summary(), ended_at=datetime.now(UTC) + timedelta(minutes=5)
+    )
     assert h.start_time.tzinfo is not None
     assert h.start_time.utcoffset() is not None
 
