@@ -167,19 +167,25 @@ const DEMO_SEQUENCE = [
   },
 ];
 
-let demoStarted = false;
+let demoTimer = null;
 
 function startDemoLoop() {
-  if (demoStarted) return;
-  demoStarted = true;
+  if (demoTimer !== null) return;
   lastBoardCount = 0;
   let i = 0;
   render(DEMO_SEQUENCE[0], "demo");
-  setInterval(() => {
+  demoTimer = setInterval(() => {
     i = (i + 1) % DEMO_SEQUENCE.length;
     if (i === 0) lastBoardCount = 0;
     render(DEMO_SEQUENCE[i], "demo");
   }, 3200);
+}
+
+function stopDemoLoop() {
+  if (demoTimer !== null) {
+    clearInterval(demoTimer);
+    demoTimer = null;
+  }
 }
 
 // --- live connection ---
@@ -194,13 +200,14 @@ function connect() {
     return;
   }
 
-  const fallbackTimer = setTimeout(startDemoLoop, 800);
+  const fallbackTimer = setTimeout(startDemoLoop, 1500);
 
   socket.onopen = () => clearTimeout(fallbackTimer);
   socket.onmessage = (event) => {
     clearTimeout(fallbackTimer);
     try {
       const analysis = JSON.parse(event.data);
+      stopDemoLoop(); // once real data arrives, it wins permanently
       render(analysis, "live");
     } catch (e) {
       // ignore malformed frame

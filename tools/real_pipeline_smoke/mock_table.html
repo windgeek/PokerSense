@@ -1,0 +1,120 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>mock-table</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #0a3d24; }
+  #stage { width: 1000px; padding: 40px; font-family: "Courier New", monospace; }
+
+  .row-label { color: #cfe; font-size: 14px; margin: 6px 0; }
+
+  .slot-row { display: flex; gap: 14px; margin-bottom: 24px; }
+
+  .card-slot {
+    width: 90px; height: 126px; border-radius: 6px;
+    background: #ffffff; position: relative;
+    border: 3px solid #333333; box-sizing: border-box;
+  }
+  .card-slot.empty { background: #0a3d24; border: 2px dashed #145c37; }
+  .card-slot .idx {
+    position: absolute; top: 6px; left: 8px;
+    font-size: 34px; font-weight: bold; color: #111111;
+    line-height: 1;
+  }
+  .card-slot .idx.red { color: #c1121f; }
+
+  .pot-box {
+    display: inline-block; background: #ffffff; color: #111111;
+    font-size: 40px; font-weight: bold; padding: 8px 16px;
+    border-radius: 4px; letter-spacing: 2px;
+  }
+
+  #template-strip { margin-top: 30px; background: #072a19; padding: 20px; }
+  .tmpl-box {
+    display: inline-block; width: 60px; height: 70px;
+    background: #ffffff; margin: 4px; text-align: center;
+    vertical-align: top;
+  }
+  .tmpl-box .glyph {
+    font-size: 34px; font-weight: bold; color: #111111; line-height: 70px;
+  }
+  .tmpl-box .glyph.red { color: #c1121f; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div class="row-label">BOARD (5 slots)</div>
+  <div class="slot-row" id="board-row"></div>
+
+  <div class="row-label">HERO (2 slots)</div>
+  <div class="slot-row" id="hero-row"></div>
+
+  <div class="row-label">POT</div>
+  <div class="pot-box" id="pot-box">42</div>
+
+  <div id="template-strip">
+    <div class="row-label" style="color:#cfe">RANK TEMPLATES</div>
+    <div id="rank-templates"></div>
+    <div class="row-label" style="color:#cfe">SUIT TEMPLATES</div>
+    <div id="suit-templates"></div>
+  </div>
+</div>
+<script>
+  const RANKS = ["2","3","4","5","6","7","8","9","T","J","Q","K","A"];
+  const SUITS = [["s","♠"], ["h","♥"], ["d","♦"], ["c","♣"]];
+  const RED = new Set(["h", "d"]);
+
+  function makeCardSlot(rank, suitChar, suitSym) {
+    const el = document.createElement("div");
+    el.className = "card-slot";
+    const idx = document.createElement("div");
+    idx.className = "idx" + (RED.has(suitChar) ? " red" : "");
+    idx.textContent = rank + suitSym;
+    el.appendChild(idx);
+    return el;
+  }
+
+  function makeEmptySlot() {
+    const el = document.createElement("div");
+    el.className = "card-slot empty";
+    return el;
+  }
+
+  // Board: Qh 9h 2c 5h 7s (matches the demo hand's flop/turn/river)
+  const board = [["Q","h","♥"], ["9","h","♥"], ["2","c","♣"], ["5","h","♥"], ["7","s","♠"]];
+  const boardRow = document.getElementById("board-row");
+  for (const [r, s, sym] of board) boardRow.appendChild(makeCardSlot(r, s, sym));
+
+  // Hero: Ah Kh
+  const hero = [["A","h","♥"], ["K","h","♥"]];
+  const heroRow = document.getElementById("hero-row");
+  for (const [r, s, sym] of hero) heroRow.appendChild(makeCardSlot(r, s, sym));
+
+  // Template strips
+  const rankStrip = document.getElementById("rank-templates");
+  for (const r of RANKS) {
+    const box = document.createElement("div");
+    box.className = "tmpl-box";
+    box.dataset.rank = r;
+    const g = document.createElement("div");
+    g.className = "glyph";
+    g.textContent = r;
+    box.appendChild(g);
+    rankStrip.appendChild(box);
+  }
+
+  const suitStrip = document.getElementById("suit-templates");
+  for (const [ch, sym] of SUITS) {
+    const box = document.createElement("div");
+    box.className = "tmpl-box";
+    box.dataset.suit = ch;
+    const g = document.createElement("div");
+    g.className = "glyph" + (RED.has(ch) ? " red" : "");
+    g.textContent = sym;
+    box.appendChild(g);
+    suitStrip.appendChild(box);
+  }
+</script>
+</body>
+</html>
