@@ -150,6 +150,49 @@ architecture decision records in [`docs/adr/`](docs/adr/).
 
 ---
 
+## How recognition actually works today (and an open question)
+
+Recognition in `src/poker_engine/perceptual/vision/` is three layers, and it's important
+to be precise about which parts generalize across poker platforms and which don't.
+
+1. **Where things are — `TableMap` / ROI.** A per-platform JSON config of normalized
+   (0–1) rectangles: where the hero cards are on screen, where the board is, where the
+   pot text is. Normalized so it survives resolution changes on the *same* platform. This
+   config is calibrated once, by hand, per platform+layout — there's no way around that;
+   every poker client lays out its table differently.
+2. **Whether a slot has a card — `TemplateBoardSlotDetector`.** Pure pixel statistics
+   (brightness × edge-texture density), no knowledge of *which* card. This part is
+   already platform-agnostic — a bright, textured region reads as "occupied" regardless
+   of art style.
+3. **Which card it is — `TemplateCardRecognizer`.** OpenCV template matching: crop the
+   slot, compare against 13 rank templates and 4 suit templates via
+   `cv2.matchTemplate`, take the best score. **This is the part that's actually
+   platform-specific** — the templates are pixel crops taken from one specific
+   platform's card art. A different card skin/font means the templates stop matching
+   (verified the hard way today: a loosely-cropped template scored 0.16 vs. 0.97 for a
+   tightly-cropped one of the *same* glyph — this approach is that sensitive to exact
+   pixel content).
+
+So: layout detection and occupancy detection are already general-purpose; card identity
+is not — it's bound to whatever screenshots the templates were cut from.
+
+**The open question is whether that's acceptable long-term**, or whether recognition
+should generalize to arbitrary platforms without per-platform template calibration. The
+realistic way to get there is a vision-language model (VLM) — prompt a multimodal model
+with the frame and ask what the cards/pot are, instead of pixel-matching. That
+genuinely generalizes across skins with no calibration step, at the cost of latency
+(hundreds of ms to seconds vs. ~12ms today), a per-call cost, a network dependency, and
+less deterministic output than template matching. Notably, the architecture already
+reserves a slot for exactly this: the Fast/Slow path split (`architecture.md` §4) was
+designed for "cache/deterministic path now, LLM/Solver path later" — a VLM recognizer is
+a natural Slow Path candidate, not a rewrite of the Fast Path.
+
+This hasn't been decided. It's a real scope call (calibrate-per-platform now vs. invest
+in VLM-based general recognition) that changes the size of the next milestone
+significantly, and is being discussed outside of this repo before committing either way.
+
+---
+
 ## Quick start
 
 Requires Python 3.11.x (pinned — see `pyproject.toml`).
