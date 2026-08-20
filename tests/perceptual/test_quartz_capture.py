@@ -46,16 +46,18 @@ def test_window_not_found(monkeypatch):
     monkeypatch.setattr(qb, "_find_window_matches", lambda title: ([], []))
     be = object.__new__(qb.QuartzBackend)
     with pytest.raises(CaptureError, match="not found or closed"):
-        be._resolve_window("missing-window")
+        be._resolve_window(CaptureTarget(window_id="missing-window"))
 
 
 def test_window_ambiguous(monkeypatch):
     monkeypatch.setattr(
-        qb, "_find_window_matches", lambda title: ([{"a": 1}, {"a": 2}], [{"a": 1}])
+        qb,
+        "_find_window_matches",
+        lambda title: ([{"a": 1}, {"a": 2}], [{"a": 1}, {"a": 2}]),
     )
     be = object.__new__(qb.QuartzBackend)
     with pytest.raises(CaptureError, match="ambiguous"):
-        be._resolve_window("dup-title")
+        be._resolve_window(CaptureTarget(window_id="dup-title"))
 
 
 def test_window_minimized(monkeypatch):
@@ -65,8 +67,8 @@ def test_window_minimized(monkeypatch):
     }
     monkeypatch.setattr(qb, "_find_window_matches", lambda title: ([match], []))
     be = object.__new__(qb.QuartzBackend)
-    with pytest.raises(CaptureError, match="minimized or not visible"):
-        be._resolve_window("hidden-window")
+    with pytest.raises(CaptureError, match="active macOS Space"):
+        be._resolve_window(CaptureTarget(window_id="hidden-window"))
 
 
 def test_window_invalid_bounds(monkeypatch):
@@ -77,7 +79,7 @@ def test_window_invalid_bounds(monkeypatch):
     monkeypatch.setattr(qb, "_find_window_matches", lambda title: ([match], [match]))
     be = object.__new__(qb.QuartzBackend)
     with pytest.raises(CaptureError, match="invalid bounds"):
-        be._resolve_window("zero-width-window")
+        be._resolve_window(CaptureTarget(window_id="zero-width-window"))
 
 
 def test_resolve_window_returns_number_and_rect(monkeypatch):
@@ -87,12 +89,41 @@ def test_resolve_window_returns_number_and_rect(monkeypatch):
     }
     monkeypatch.setattr(qb, "_find_window_matches", lambda title: ([match], [match]))
     be = object.__new__(qb.QuartzBackend)
-    number, rect = be._resolve_window("some-window")
+    number, rect = be._resolve_window(CaptureTarget(window_id="some-window"))
     assert number == 42
     assert rect.left == 10
     assert rect.top == 20
     assert rect.width == 300
     assert rect.height == 200
+
+
+def test_resolve_window_selects_explicit_visible_index(monkeypatch):
+    matches = [
+        {
+            "kCGWindowNumber": 10,
+            "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 100, "Height": 50},
+        },
+        {
+            "kCGWindowNumber": 11,
+            "kCGWindowBounds": {"X": 100, "Y": 0, "Width": 100, "Height": 50},
+        },
+    ]
+    monkeypatch.setattr(qb, "_find_window_matches", lambda title: (matches, matches))
+    be = object.__new__(qb.QuartzBackend)
+    number, rect = be._resolve_window(CaptureTarget("dup-title", window_index=1))
+    assert number == 11
+    assert rect.left == 100
+
+
+def test_resolve_window_rejects_out_of_range_index(monkeypatch):
+    match = {
+        "kCGWindowNumber": 7,
+        "kCGWindowBounds": {"X": 0, "Y": 0, "Width": 100, "Height": 50},
+    }
+    monkeypatch.setattr(qb, "_find_window_matches", lambda title: ([match], [match]))
+    be = object.__new__(qb.QuartzBackend)
+    with pytest.raises(CaptureError, match="out of range"):
+        be._resolve_window(CaptureTarget("table", window_index=1))
 
 
 def test_bitmap_layout_mismatch_raises(monkeypatch):

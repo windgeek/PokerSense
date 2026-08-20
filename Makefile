@@ -16,13 +16,14 @@ clean:
 	rm -rf .pytest_cache build dist *.egg-info
 
 # Desktop shell (needs the `desktop` extra: pip install -e ".[dev,desktop]").
-# Currently streams the scripted demo sequence, not a real capture pipeline.
+# Reads a real calibrated poker window; use tools/list_windows.py to choose a
+# same-titled window explicitly when needed.
 run-desktop:
-	$(PYTHON) -m poker_engine.desktop.app
+	$(PYTHON) -m poker_engine.desktop.app $(ARGS)
 
 # Server only (no native window) -- useful for previewing ui/ in a browser.
 run-desktop-server:
-	$(PYTHON) -m poker_engine.desktop.server
+	$(PYTHON) -m poker_engine.desktop.server $(ARGS)
 
 # Build a local .app (macOS) / folder (Windows) via PyInstaller. Needs the
 # `packaging` extra: pip install -e ".[dev,desktop,packaging]".

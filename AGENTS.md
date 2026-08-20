@@ -25,21 +25,14 @@ statement.
 
 ## Environment gotcha: `.venv` and Python version
 
-`pyproject.toml` pins `requires-python = ">=3.11,<3.12"`, but this
-machine only has Python 3.13 (`python3.11`/`3.12` are not installed, no
-pyenv). The project has been running fine on 3.13 in practice — full
-suite green, flake8 clean — so the version pin is stale, not a real
-constraint. To (re)create the venv on this machine:
+`pyproject.toml` supports Python 3.11–3.13. This machine only has Python
+3.13 (`python3.11`/`3.12` are not installed, no pyenv). To (re)create the
+venv on this machine:
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/pip install --ignore-requires-python -e ".[dev,perceptual,desktop]"
+./.venv/bin/pip install -e ".[dev,perceptual,desktop]"
 ```
-
-`--ignore-requires-python` is required or pip refuses to install. Someone
-should either loosen the `pyproject.toml` pin or install a matching
-Python; this workaround is fine short-term but don't let it become
-permanent tribal knowledge.
 
 **Screen Recording permission is tied to the exact binary path.** Every
 time `.venv` is deleted and recreated, macOS treats the new
@@ -54,7 +47,7 @@ broken.
 so it never lands in git. That's fine for git hygiene but means the next
 agent session on a fresh checkout has to rebuild it — see above.)
 
-## Live blocker: two WePoker windows, macOS Spaces
+## Live capture: two WePoker windows, macOS Spaces
 
 The user runs a 2-max heads-up table locally by opening **two** Chrome
 windows with the same title (`WePoker-H5`) — one normal-mode (their own
@@ -66,21 +59,14 @@ rather than guessing which one to capture (see
 correct behavior, not a bug to route around by picking one arbitrarily.
 
 The user's own window is **the normal-mode Chrome window** (not
-incognito). Two things still need solving:
+incognito). The explicit selection portion is now implemented:
 
-1. **Disambiguation.** `CaptureTarget` (in
-   `src/poker_engine/perceptual/capture/base.py`) currently only carries
-   `window_id: str`. There's no way to say "the normal-mode one, not the
-   incognito one" — both report identical `kCGWindowName` and
-   `kCGWindowOwnerName` via Quartz's window list. Worth checking whether
-   Quartz's window info exposes anything that distinguishes an incognito
-   Chrome window from a normal one (window number ordering, bounds,
-   something in `CGWindowListCopyWindowInfo`'s other keys) before adding
-   an explicit disambiguator field. If nothing distinguishes them
-   reliably, the honest fix is a `window_index` or similar field on
-   `CaptureTarget` that the caller sets explicitly (not silently defaulted
-   — ambiguity should still be a hard error unless the caller opts in to
-   picking one).
+1. **Disambiguation.** `CaptureTarget.window_index` now selects a visible
+   same-title match explicitly. `tools/list_windows.py --title WePoker-H5`
+   lists index, bounds and owner; pass the chosen value via
+   `make run-desktop ARGS="--window-index N"`. Without it, two visible
+   matches remain a hard error. The index is current-list-only, so re-list
+   after rearranging windows.
 
 2. **macOS Spaces.** `CGWindowListCopyWindowInfo` with
    `kCGWindowListOptionOnScreenOnly` only returns windows on the
@@ -102,13 +88,11 @@ incognito). Two things still need solving:
 
 ## Immediate next step
 
-Get one concrete repro: user switches to the Space with the normal-mode
-WePoker Chrome window, keeps it there, and someone re-runs the window
-enumeration diagnostic (see `git log -1 -p` or session history for the
-one-liner using `Quartz.CGWindowListCopyWindowInfo`) to confirm it's
-visible and unambiguous once Spaces aren't in the way. Then decide between
-the two Spaces fixes above, and add the `CaptureTarget` disambiguator for
-the normal/incognito case.
+Get one concrete live repro: user switches to the Space with the normal-mode
+WePoker Chrome window, runs `tools/list_windows.py`, then starts the app with
+the printed `--window-index` if necessary. Confirm continuous hero-card
+recognition while a hand is played. Board/pot/street still require reference
+screenshots and calibration.
 
 ## Longer-term (from the original roadmap, still valid)
 

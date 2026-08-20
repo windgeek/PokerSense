@@ -30,7 +30,7 @@ verified on real hardware, not just implemented and assumed correct.
 | Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
 | Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
 | Desktop app driven by **real screen capture** | ✅ Working against a captured screenshot | recognizes hero cards and computes real equity — no scripted data anywhere in the app |
-| Continuous live capture during an active session | ⚠️ Blocked | two windows with the same title (multi-account testing) and macOS Spaces — see [Known issue](#known-issue-live-capture-during-an-active-session) below |
+| Continuous live capture during an active session | ✅ Usable on the active Space | Same-titled windows can be selected explicitly; the table must be on the current macOS Space |
 | Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
 | Hero-card recognition on a real platform (WePoker H5) | ✅ Calibrated and measured | 48/48 on held-out real captures — see [Real-platform calibration](#real-platform-calibration) |
 | Board cards / pot / street on a real platform | ❌ Not done | only the hero-card region has been calibrated so far |
@@ -91,23 +91,23 @@ without touching the sealed template matcher.
 Regression tests run against committed real-capture fixtures
 (`tests/vision/fixtures/wepoker/`), all of them held-out samples.
 
-### Known issue: live capture during an active session
+### macOS Spaces and same-titled windows
 
-The pipeline was verified end to end against a real captured screenshot (see above), but
-wiring it up against an actively-open, actively-played table surfaced a real problem that
-is not yet fixed: `QuartzBackend` matches windows by title, and it deliberately raises
-rather than guessing when a title is ambiguous
-(`src/poker_engine/perceptual/capture/quartz_backend.py::_resolve_window`). Testing a
-2-max table locally means two Chrome windows share the same title (one account per
-window), which trips that check — correctly, but there's currently no way to tell the
-capture backend which one is "yours". Debugging that also surfaced that
-`CGWindowListOptionOnScreenOnly` only sees windows on the **current macOS Space**, which
-may or may not be an acceptable constraint depending on how a player actually arranges
-their desktop while playing.
+`QuartzBackend` captures only visible, unminimized windows on the **current macOS
+Space**. Put the WePoker table on that Space before starting the companion app; the UI
+will tell you to switch Spaces if it cannot see the table.
 
-Full debugging notes, the concrete repro, and candidate fixes are in
-[`AGENTS.md`](AGENTS.md) — read that before touching `CaptureTarget` or
-`quartz_backend.py`, rather than re-deriving this from scratch.
+When two visible windows have the same title, PokerSense still refuses to guess. List
+them, then pass the index for your table explicitly:
+
+```bash
+./.venv/bin/python tools/list_windows.py --title WePoker-H5
+make run-desktop-server ARGS="--window-index 0"
+# or: make run-desktop ARGS="--window-index 0"
+```
+
+The index is the current window-list order, not a persistent ID. Re-run the command
+after rearranging windows, switching Spaces, or reopening Chrome.
 
 ---
 
@@ -251,10 +251,9 @@ Slow Path candidate, not a rewrite of the Fast Path.
 
 ## Quick start
 
-`pyproject.toml` pins `>=3.11,<3.12`, but the engine runs fine on 3.13 in practice (full
-suite green, flake8 clean) — the pin just hasn't been revisited. If your machine only has
-3.13 and no 3.11, install with `pip install --ignore-requires-python -e ...` instead of
-the plain `pip install -e ...` below.
+Python 3.11–3.13 is supported. Use the project's `.venv` where possible: macOS Screen
+Recording permission is tied to the executable path, so recreating the environment may
+require granting permission again.
 
 ```bash
 # Core engine + tests
@@ -298,19 +297,15 @@ origin v0.1.0`).
 
 Deliberately sequenced so nothing gets built on an unproven foundation:
 
-1. **Unblock live capture during an active session** — see [Known
-   issue](#known-issue-live-capture-during-an-active-session) above. Board/pot/street
-   calibration needs this first: it requires capturing reference frames while a hand is
-   actually being played.
-2. **Finish real-platform calibration** — hero cards are done (see above). Board cards,
+1. **Finish real-platform calibration** — hero cards are done (see above). Board cards,
    pot amount, and street detection still need ROI calibration and accuracy measurement
    against a real table.
-3. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
+2. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
    a few hundred ms); replace with a C-level evaluator or vectorize.
-4. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
+3. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
    advice before recognition is proven reliable is a real risk (see `architecture.md`'s
    "strategy comes after correctness" rule) — Vision has to be trustworthy first.
-5. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
+4. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
    support via the `configs/platform/` adapter pattern.
 
 ---

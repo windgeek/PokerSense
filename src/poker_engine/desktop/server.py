@@ -13,6 +13,7 @@ what to fix, and the stream keeps retrying.
 from __future__ import annotations
 
 import asyncio
+import argparse
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -95,14 +96,31 @@ def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastA
     return app
 
 
-def run(host: str = "127.0.0.1", port: int = 8765) -> None:
+def run(
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    window_title: str = DEFAULT_WINDOW_TITLE,
+    window_index: int | None = None,
+) -> None:
+    def stream() -> AsyncIterator[RealtimeAnalysis]:
+        return live_analysis_stream(window_title, window_index)
+
     import uvicorn
 
-    uvicorn.run(create_app(), host=host, port=port, log_level="warning")
+    uvicorn.run(create_app(stream), host=host, port=port, log_level="warning")
 
 
 __all__ = ["create_app", "run"]
 
 
 if __name__ == "__main__":
-    run()
+    parser = argparse.ArgumentParser(description="Run the PokerSense local server")
+    parser.add_argument("--window-title", default=DEFAULT_WINDOW_TITLE)
+    parser.add_argument(
+        "--window-index",
+        type=int,
+        help="visible same-title window index from tools/list_windows.py",
+    )
+    parser.add_argument("--port", type=int, default=8765)
+    args = parser.parse_args()
+    run(port=args.port, window_title=args.window_title, window_index=args.window_index)

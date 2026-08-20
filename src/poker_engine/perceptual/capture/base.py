@@ -112,10 +112,18 @@ class CaptureTarget:
     """
 
     window_id: str
+    window_index: int | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.window_id, str) or not self.window_id.strip():
             raise ValueError("window_id must be a non-empty str")
+        if self.window_index is not None:
+            if isinstance(self.window_index, bool) or not isinstance(
+                self.window_index, int
+            ):
+                raise TypeError("window_index must be an int or None")
+            if self.window_index < 0:
+                raise ValueError("window_index must be >= 0")
 
 
 class CaptureService:

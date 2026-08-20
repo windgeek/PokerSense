@@ -76,7 +76,16 @@ from poker_engine.realtime.analysis import RealtimeAnalysis
 from poker_engine.realtime.pipeline import RealtimePipeline
 from poker_engine.state_engine.engine import StateEngine
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+def _resource_root() -> Path:
+    """Return the checkout root or PyInstaller's bundled resource directory."""
+    frozen_base = getattr(sys, "_MEIPASS", None)
+    if frozen_base is not None:
+        return Path(frozen_base)
+    return Path(__file__).resolve().parents[3]
+
+
+_REPO_ROOT = _resource_root()
 DEFAULT_PLATFORM = "wepoker"
 DEFAULT_LAYOUT = "h5_2max"
 DEFAULT_WINDOW_TITLE = "WePoker-H5"
@@ -254,9 +263,16 @@ def load_calibration(
 class WindowFrameSource:
     """FrameSource that captures a named on-screen window on every pull."""
 
-    def __init__(self, backend: CaptureService, window_title: str) -> None:
+    def __init__(
+        self,
+        backend: CaptureService,
+        window_title: str,
+        window_index: int | None = None,
+    ) -> None:
         self._backend = backend
-        self._target = CaptureTarget(window_id=window_title)
+        self._target = CaptureTarget(
+            window_id=window_title, window_index=window_index
+        )
 
     def next_frame(self) -> Frame | None:
         try:
@@ -298,6 +314,7 @@ def _seed_state(hand_id: str = "live-1") -> PokerState:
 
 def build_pipeline(
     window_title: str = DEFAULT_WINDOW_TITLE,
+    window_index: int | None = None,
     platform: str = DEFAULT_PLATFORM,
     layout: str = DEFAULT_LAYOUT,
 ) -> RealtimePipeline:
@@ -310,12 +327,15 @@ def build_pipeline(
         confidence_gate=build_confidence_gate(measured),
     )
     orchestrator.start_hand(_seed_state())
-    frame_source = WindowFrameSource(build_capture_backend(), window_title)
+    frame_source = WindowFrameSource(
+        build_capture_backend(), window_title, window_index
+    )
     return RealtimePipeline(frame_source, vision, table_map, orchestrator)
 
 
 async def live_analysis_stream(
     window_title: str = DEFAULT_WINDOW_TITLE,
+    window_index: int | None = None,
     interval_seconds: float = 1.0,
 ) -> AsyncIterator[RealtimeAnalysis]:
     """Yield a fresh analysis for as long as the window can be captured.
@@ -323,7 +343,7 @@ async def live_analysis_stream(
     Capture and recognition are CPU-bound and run off the event loop, so the
     server stays responsive between frames.
     """
-    pipeline = await asyncio.to_thread(build_pipeline, window_title)
+    pipeline = await asyncio.to_thread(build_pipeline, window_title, window_index)
     while True:
         try:
             step = await asyncio.to_thread(pipeline.step)

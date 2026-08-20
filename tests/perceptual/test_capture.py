@@ -119,6 +119,12 @@ def test_capture_target_window_id_nonempty():
         CaptureTarget(window_id="   ")
 
 
+@pytest.mark.parametrize("index", [-1, True, "0"])
+def test_capture_target_window_index_rejected_when_invalid(index):
+    with pytest.raises((TypeError, ValueError)):
+        CaptureTarget(window_id="table", window_index=index)
+
+
 # --- DPI awareness fail-fast contract (mocked) ---
 
 def test_mss_backend_fails_fast_when_dpi_none(monkeypatch):

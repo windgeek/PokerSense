@@ -26,7 +26,7 @@
 | 实时链路（Capture → Vision → State → Equity，单一事件循环） | ✅ 可运行 | 由真实截屏驱动，端到端跑通 |
 | 桌面 UI（伴随窗口，实时刷新） | ✅ 可运行 | FastAPI + WebSocket 后端，HTML/CSS/JS 前端，已验证实时生效 |
 | 桌面 App 由**真实截屏**驱动 | ✅ 针对一张真实截图验证通过 | 识别底牌并计算真实胜率——App 里没有任何写死的演示数据 |
-| 打牌过程中的持续实时截屏 | ⚠️ 被卡住 | 两个同名窗口（本机多账号测试）+ macOS Spaces——见下方[已知问题](#已知问题打牌过程中的实时截屏) |
+| 打牌过程中的持续实时截屏 | ✅ 可用（当前 Space） | 同名窗口可显式选择；牌桌必须在当前活动的 macOS Space |
 | 打包（macOS `.dmg`、Windows 安装包 `.exe`，通过 GitHub Actions） | ✅ 可运行 | CI 构建与打 tag 发布均已成功 |
 | 真实平台底牌识别（WePoker H5） | ✅ 已标定并实测 | 留出样本 48/48 全对——见 [真实平台标定](#真实平台标定) |
 | 真实平台的公共牌 / 底池 / 街道识别 | ❌ 未完成 | 目前只标定了底牌区域 |
@@ -78,18 +78,22 @@ letterbox 到固定网格上。它是一个独立的 `CardRecognizer` Protocol �
 
 回归测试跑在提交进仓库的真实截图样本上（`tests/vision/fixtures/wepoker/`），全部是留出样本。
 
-### 已知问题：打牌过程中的实时截屏
+### 使用限制：macOS Spaces 与同名窗口
 
-上面这条链路是针对一张**真实截图**端到端验证通过的，但接到一张**正在真实进行**的牌桌上时，冒出
-了一个还没解决的真问题：`QuartzBackend` 是按窗口标题匹配的，标题有歧义时它会**故意报错而不是瞎猜**
-（见 `src/poker_engine/perceptual/capture/quartz_backend.py::_resolve_window`）。本机测试一张
-2 人桌，需要开两个 Chrome 窗口（一个账号一个），标题恰好一样，于是触发了这个检查——检查本身是对的，
-但目前没有办法告诉抓屏后端"该抓哪一个是我的"。排查过程中还发现 `CGWindowListOptionOnScreenOnly`
-只能看到 **macOS 当前活动 Space（虚拟桌面）**上的窗口，这算不算一个可接受的限制，取决于玩家实际
-打牌时怎么摆放桌面。
+`QuartzBackend` 只抓取**当前活动 macOS Space** 中可见、未最小化的窗口。这是 CoreGraphics 的
+可见窗口采集语义，因此请把 WePoker 牌桌切到当前 Space 后再启动伴随窗口；否则 UI 会明确提示你切换
+Space，而不是误报窗口不存在。
 
-完整排查记录、可复现步骤和候选修复方案都写在 [`AGENTS.md`](AGENTS.md) 里——改动
-`CaptureTarget` 或 `quartz_backend.py` 之前先看那份文档，不要从头再推一遍。
+如果两个 WePoker 窗口同名且同时可见，默认仍会拒绝猜测目标。先列出窗口，再把你自己的正常模式窗口
+对应的 `index` 显式传入：
+
+```bash
+./.venv/bin/python tools/list_windows.py --title WePoker-H5
+make run-desktop-server ARGS="--window-index 0"
+# 或：make run-desktop ARGS="--window-index 0"
+```
+
+序号是当前窗口列表中的顺序，不是永久 ID；调整窗口、切换 Space 或重开 Chrome 后，应重新运行列窗命令。
 
 ---
 
@@ -221,9 +225,8 @@ flowchart TB
 
 ## 快速上手
 
-`pyproject.toml` 锁的是 `>=3.11,<3.12`，但实测在 3.13 上跑也没问题（全量测试和 flake8 都是绿的）——
-这个版本限定只是没人回头改而已。如果你机器上只有 3.13、没有 3.11，下面的 `pip install -e ...` 要
-换成 `pip install --ignore-requires-python -e ...`。
+支持 Python 3.11–3.13。建议使用项目的 `.venv`，避免 macOS Screen Recording 权限绑定到不同解释器路径
+造成抓屏失败。
 
 ```bash
 # 核心引擎 + 测试

@@ -7,7 +7,7 @@ name = "poker-engine"
 version = "0.1.0"
 description = "Poker Intelligence Engine - single-table Texas Hold'em AI analysis system"
 readme = "README.md"
-requires-python = ">=3.11,<3.12"
+requires-python = ">=3.11,<3.14"
 license = { text = "Proprietary" }
 authors = [{ name = "Poker Intelligence Engine Team" }]
 # Core layer (poker_engine.core) remains zero third-party runtime dependencies.

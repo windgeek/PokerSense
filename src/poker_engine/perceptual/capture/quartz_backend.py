@@ -28,6 +28,7 @@ treated as different identities by macOS).
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from dataclasses import dataclass
 
 import numpy as np
 
@@ -74,6 +75,44 @@ def _find_window_matches(title: str) -> tuple[list[dict], list[dict]]:
     return all_matches, onscreen_matches
 
 
+@dataclass(frozen=True)
+class WindowCandidate:
+    """A selectable, currently visible macOS window.
+
+    ``index`` is only stable for the current enumeration.  It is intended as
+    an explicit user choice when two same-titled windows are visible, not as a
+    persistent window identifier.
+    """
+
+    index: int
+    window_number: int
+    owner_name: str
+    left: int
+    top: int
+    width: int
+    height: int
+
+
+def list_window_candidates(title: str) -> tuple[WindowCandidate, ...]:
+    """List visible candidates for a title in Quartz' current z-order."""
+    _, matches = _find_window_matches(title)
+    candidates = []
+    for index, window in enumerate(matches):
+        bounds = window.get("kCGWindowBounds", {})
+        candidates.append(
+            WindowCandidate(
+                index=index,
+                window_number=int(window["kCGWindowNumber"]),
+                owner_name=str(window.get("kCGWindowOwnerName", "")),
+                left=int(bounds.get("X", 0)),
+                top=int(bounds.get("Y", 0)),
+                width=int(bounds.get("Width", 0)),
+                height=int(bounds.get("Height", 0)),
+            )
+        )
+    return tuple(candidates)
+
+
 def _cgimage_to_bgr_ndarray(image_ref) -> np.ndarray:
     bitmap_info = Quartz.CGImageGetBitmapInfo(image_ref)
     if bitmap_info != _EXPECTED_BITMAP_INFO:
@@ -111,21 +150,36 @@ class QuartzBackend(CaptureService):
             )
         super().__init__()
 
-    def _resolve_window(self, window_id: str) -> tuple[int, WindowRect]:
+    def _resolve_window(self, target: CaptureTarget) -> tuple[int, WindowRect]:
+        window_id = target.window_id
         all_matches, onscreen_matches = _find_window_matches(window_id)
 
         if not all_matches:
             raise CaptureError(f"target window {window_id!r} not found or closed")
-        if len(all_matches) > 1:
-            raise CaptureError(
-                f"target window {window_id!r} is ambiguous ({len(all_matches)} matches)"
-            )
         if not onscreen_matches:
+            raise CaptureError(
+                f"target window {window_id!r} is not on the active macOS Space "
+                "or is minimized/hidden; switch to the Space containing the table"
+            )
+        if len(onscreen_matches) > 1 and target.window_index is None:
+            raise CaptureError(
+                f"target window {window_id!r} is ambiguous ({len(onscreen_matches)} "
+                "visible matches); set window_index explicitly using "
+                "tools/list_windows.py"
+            )
+        if target.window_index is not None:
+            if target.window_index >= len(onscreen_matches):
+                raise CaptureError(
+                    f"window_index {target.window_index} is out of range for "
+                    f"{window_id!r} ({len(onscreen_matches)} visible matches)"
+                )
+            w = onscreen_matches[target.window_index]
+        else:
+            w = onscreen_matches[0]
+        if not w:
             raise CaptureError(
                 f"target window {window_id!r} is minimized or not visible"
             )
-
-        w = onscreen_matches[0]
         window_number = int(w["kCGWindowNumber"])
         bounds = w["kCGWindowBounds"]
         left = int(bounds["X"])
@@ -145,7 +199,7 @@ class QuartzBackend(CaptureService):
         if not isinstance(target, CaptureTarget):
             raise TypeError("target must be a CaptureTarget")
 
-        window_number, rect = self._resolve_window(target.window_id)
+        window_number, rect = self._resolve_window(target)
 
         cg_rect = Quartz.CGRectMake(rect.left, rect.top, rect.width, rect.height)
         image_ref = Quartz.CGWindowListCreateImage(
@@ -175,4 +229,4 @@ class QuartzBackend(CaptureService):
         )
 
 
-__all__ = ["QuartzBackend"]
+__all__ = ["QuartzBackend", "WindowCandidate", "list_window_candidates"]

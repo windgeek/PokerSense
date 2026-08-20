@@ -37,7 +37,13 @@ a = Analysis(
     [str(REPO_ROOT / "packaging" / "entry.py")],
     pathex=[str(REPO_ROOT / "src")],
     binaries=[],
-    datas=[(str(REPO_ROOT / "ui"), "ui")],
+    datas=[
+        (str(REPO_ROOT / "ui"), "ui"),
+        # Live capture loads platform ROI calibration and card-glyph templates
+        # at runtime. These must travel with the frozen app, not just exist in
+        # the source checkout used to create it.
+        (str(REPO_ROOT / "configs"), "configs"),
+    ],
     hiddenimports=hidden_imports,
     hookspath=[],
     hooksconfig={},
