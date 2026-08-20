@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from datetime import datetime, timezone
 
 import numpy as np
@@ -169,6 +170,10 @@ def _setup_dpi_mocks(monkeypatch, mb, access_denied, is_per_monitor):
     monkeypatch.setattr(mb.ctypes, "WinDLL", lambda *a, **k: _FakeShcore())
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="patches ctypes.WinDLL, which only exists on Windows",
+)
 def test_dpi_access_denied_with_per_monitor_accepted(monkeypatch):
     import poker_engine.perceptual.capture.mss_backend as mb
 
@@ -176,6 +181,10 @@ def test_dpi_access_denied_with_per_monitor_accepted(monkeypatch):
     assert mb._try_set_dpi_awareness() == "already_set_per_monitor"
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="patches ctypes.WinDLL, which only exists on Windows",
+)
 def test_dpi_access_denied_with_system_aware_rejected(monkeypatch):
     import poker_engine.perceptual.capture.mss_backend as mb
 
