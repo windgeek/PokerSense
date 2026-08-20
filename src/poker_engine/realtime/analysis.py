@@ -73,10 +73,17 @@ class ConfidenceSnapshot:
                 "stacks", "bet_size", "action",
             )
         )
-        return cls(
-            overall_confidence=obs.overall_confidence,
-            field_status=statuses,
-        )
+        # Vision observations historically leave ``overall_confidence`` at its
+        # default zero.  The desktop must therefore derive its displayed
+        # confidence from the fields that are *currently valid*, rather than
+        # reporting 0% beside a valid, measured hero-card reading.
+        valid_confidences = [
+            getattr(obs, name).confidence
+            for name, status in statuses
+            if status == "valid"
+        ]
+        overall = max(valid_confidences, default=0.0)
+        return cls(overall_confidence=overall, field_status=statuses)
 
 
 @dataclass(frozen=True)

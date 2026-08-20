@@ -341,7 +341,16 @@ def build_pipeline(
             platform == DEFAULT_PLATFORM and layout == DEFAULT_LAYOUT
         ),
     )
-    return RealtimePipeline(frame_source, vision, table_map, orchestrator)
+    return RealtimePipeline(
+        frame_source,
+        vision,
+        table_map,
+        orchestrator,
+        # A valid hero hand is immutable within a deal. Requiring two
+        # identical frames prevents one half-rendered / miscaptured frame
+        # from becoming the canonical hand shown to the player.
+        hero_confirmation_frames=2,
+    )
 
 
 async def live_analysis_stream(

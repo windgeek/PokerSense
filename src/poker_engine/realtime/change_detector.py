@@ -6,9 +6,10 @@ StateEngine transition + analysis refresh — at 30 FPS the underlying poker
 state changes far more rarely than frames arrive, so this is the event-driven
 gate that keeps the pipeline cheap.
 
-Change rule per field: a field is "changed" when BOTH the previous and the
-current observation carry a VALID, non-None value for it AND those values
-differ. A field that is UNKNOWN/CONFLICT (or None) is not a change signal.
+Change rule per field: a field is "changed" when a valid value is first
+acquired, or when two valid values differ. Losing validity is deliberately
+not a state transition: the presentation layer clears the field immediately,
+while canonical state waits for a new confirmed value.
 """
 
 from __future__ import annotations
@@ -53,11 +54,11 @@ def detect_change(previous: RawObservation, current: RawObservation) -> ChangeRe
     for name in _TRACKED:
         prev_val = _field_value(previous, name)
         curr_val = _field_value(current, name)
-        if prev_val is None or curr_val is None:
-            # a field that is not confidently known on either side is not a
-            # deterministic "change" signal we can act on.
+        if curr_val is None:
+            # An abstention must not erase canonical state. The realtime
+            # snapshot still carries this frame's UNKNOWN status to the UI.
             continue
-        if prev_val != curr_val:
+        if prev_val is None or prev_val != curr_val:
             changed_fields.append(name)
 
     return ChangeReport(

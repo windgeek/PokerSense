@@ -111,9 +111,12 @@ function render(analysis) {
   showStatus("live", "live");
   const state = analysis.state;
   els.streetBadge.textContent = statusOf(analysis, "street") === "valid" ? state.street : "—";
-  renderCardSlots(els.boardSlots, state.board_cards, 5, lastBoardCount);
-  lastBoardCount = state.board_cards.length;
-  renderCardSlots(els.heroSlots, state.hero_cards, 2);
+  const boardKnown = statusOf(analysis, "board_cards") === "valid";
+  const heroKnown = statusOf(analysis, "hero_cards") === "valid" && state.hero_cards.length === 2;
+  const boardCards = boardKnown ? state.board_cards : [];
+  renderCardSlots(els.boardSlots, boardCards, 5, lastBoardCount);
+  lastBoardCount = boardCards.length;
+  renderCardSlots(els.heroSlots, heroKnown ? state.hero_cards : [], 2);
   const potKnown = statusOf(analysis, "pot") === "valid";
   els.potValue.classList.toggle("unknown", !potKnown);
   els.potValue.replaceChildren();
@@ -124,11 +127,20 @@ function render(analysis) {
   } else els.potValue.textContent = t("notCalibrated");
   const winPct = analysis.equity.win_rate * 100;
   const tiePct = analysis.equity.tie_rate * 100;
-  els.equityBar.classList.remove("idle");
-  els.winRate.textContent = `${winPct.toFixed(1)}%`;
-  els.winRate.className = "win " + (analysis.equity.win_rate >= 0.55 ? "" : analysis.equity.win_rate >= 0.35 ? "mid" : "low");
-  els.tieRate.textContent = `${t("tie")} ${tiePct.toFixed(1)}%`;
-  els.segWin.style.width = `${winPct}%`; els.segTie.style.width = `${tiePct}%`;
+  if (!heroKnown) {
+    els.equityBar.classList.add("idle");
+    els.winRate.textContent = "—";
+    els.winRate.className = "win idle";
+    els.tieRate.textContent = `${t("tie")} —`;
+    els.segWin.style.width = "0%";
+    els.segTie.style.width = "0%";
+  } else {
+    els.equityBar.classList.remove("idle");
+    els.winRate.textContent = `${winPct.toFixed(1)}%`;
+    els.winRate.className = "win " + (analysis.equity.win_rate >= 0.55 ? "" : analysis.equity.win_rate >= 0.35 ? "mid" : "low");
+    els.tieRate.textContent = `${t("tie")} ${tiePct.toFixed(1)}%`;
+    els.segWin.style.width = `${winPct}%`; els.segTie.style.width = `${tiePct}%`;
+  }
   const confidence = analysis.confidence.overall_confidence;
   els.confidenceValue.textContent = `${t("confidence")} ${(confidence * 100).toFixed(0)}%`;
   els.confidenceBadge.style.background = confidence >= 0.9 ? "var(--good)" : confidence >= 0.6 ? "var(--warn)" : "var(--bad)";

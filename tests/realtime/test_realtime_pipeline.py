@@ -31,7 +31,7 @@ from orchestrator.fixtures import initial_state  # noqa: E402
 from profiles import relaxed_confidence_gate  # noqa: E402
 
 
-def _build_pipeline(frames):
+def _build_pipeline(frames, *, hero_confirmation_frames=1):
     """Assemble a realtime pipeline over a synthetic frame sequence."""
     # TEST-ONLY relaxed confidence gate (profiles.py) so synthetic template
     # confidence (max 0.9) can pass. Frozen production thresholds (0.995) are
@@ -50,6 +50,7 @@ def _build_pipeline(frames):
         orchestrator=orch,
         equity_trials=1000,
         equity_seed=7,
+        hero_confirmation_frames=hero_confirmation_frames,
     )
 
 
@@ -106,6 +107,24 @@ def test_change_detector_skips_duplicate_frames():
     assert second.analysis_changed is False     # duplicate frame: no change
     # a material change WAS detected on the first, none on the second
     assert second.change.changed is False
+
+
+def test_hero_cards_require_two_matching_frames_when_configured():
+    """A transient first read cannot seed the immutable hero hand."""
+    frame = _frame([], ["AS", "KD"], "PREFLOP", "10", "5",
+                   ("100", "200", "300"), ("CHECK", "CALL"), 0)
+    next_frame = _frame([], ["AS", "KD"], "PREFLOP", "10", "5",
+                        ("100", "200", "300"), ("CHECK", "CALL"), 1)
+    pipe = _build_pipeline((frame, next_frame), hero_confirmation_frames=2)
+
+    first = pipe.step()
+    second = pipe.step()
+
+    assert first is not None and second is not None
+    assert first.analysis.state.hero_cards == ()
+    assert dict(first.analysis.confidence.field_status)["hero_cards"] == "unknown"
+    assert [str(card) for card in second.analysis.state.hero_cards] == ["As", "Kd"]
+    assert dict(second.analysis.confidence.field_status)["hero_cards"] == "valid"
 
 
 def test_realtime_equity_is_a_valid_probability():
