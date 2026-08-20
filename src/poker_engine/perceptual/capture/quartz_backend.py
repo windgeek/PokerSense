@@ -150,7 +150,17 @@ def _cgimage_to_bgr_ndarray(image_ref) -> np.ndarray:
     data = Quartz.CGDataProviderCopyData(provider)
     buf = bytes(data)
 
+    expected_bytes = height * bytes_per_row
+    if len(buf) < expected_bytes:
+        raise CaptureError(
+            f"CGImage pixel buffer is truncated ({len(buf)} < {expected_bytes})"
+        )
+    # CGDisplayCreateImage can append provider padding after the final scan
+    # line. Only the documented height × bytes-per-row pixel region belongs
+    # to this image; reshaping the entire provider buffer would otherwise
+    # raise ValueError and leave the desktop UI stuck at "waiting".
     arr = np.frombuffer(buf, dtype=np.uint8)
+    arr = arr[:expected_bytes]
     arr = arr.reshape((height, bytes_per_row // 4, 4))
     arr = arr[:, :width, :3]  # BGRA (verified) -> drop alpha -> BGR
     return np.ascontiguousarray(arr)

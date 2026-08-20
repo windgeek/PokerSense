@@ -14,6 +14,7 @@ from __future__ import annotations
 
 from typing import Mapping
 
+import cv2
 import numpy as np
 
 from poker_engine.core.observation import (
@@ -101,6 +102,50 @@ def _conflict_between(left: tuple[Card, ...], right: tuple[Card, ...]) -> bool:
     """True if any card appears in BOTH left and right (same rank+suit)."""
     right_keys = {_card_key(c) for c in right}
     return any(_card_key(c) in right_keys for c in left)
+
+
+def _locate_bottom_hero_cards(image: np.ndarray) -> tuple[np.ndarray, ...]:
+    """Find the two bright card faces at the bottom-centre of a table frame.
+
+    WePoker may be captured with browser chrome included or in its fullscreen
+    table mode, which shifts the fixed calibrated ROI vertically. This narrow
+    fallback only considers a matching pair of white card faces in the lower
+    centre; it does not attempt generic screen OCR.
+    """
+    if image is None or image.size == 0:
+        return ()
+    height, width = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    _, mask = cv2.threshold(gray, 210, 255, cv2.THRESH_BINARY)
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    candidates: list[tuple[int, int, int, int]] = []
+    for x, y, card_w, card_h, area in stats[1:]:
+        ratio = card_h / card_w if card_w else 0.0
+        if (
+            y >= int(height * 0.65)
+            and int(width * 0.25) <= x <= int(width * 0.75)
+            and card_w >= int(width * 0.01)
+            and card_h >= int(height * 0.04)
+            and 1.15 <= ratio <= 2.1
+            and area >= card_w * card_h * 0.45
+        ):
+            candidates.append((int(x), int(y), int(card_w), int(card_h)))
+
+    pairs: list[tuple[float, tuple[int, int, int, int], tuple[int, int, int, int]]] = []
+    for index, first in enumerate(candidates):
+        for second in candidates[index + 1:]:
+            left, right = sorted((first, second), key=lambda item: item[0])
+            gap = right[0] - (left[0] + left[2])
+            aligned = abs(left[1] - right[1]) <= int(height * 0.025)
+            similar = abs(left[2] - right[2]) <= int(width * 0.02)
+            if aligned and similar and 0 <= gap <= int(width * 0.08):
+                centre = (left[0] + right[0] + right[2]) / 2
+                score = abs(centre - width / 2) + abs(left[1] - right[1])
+                pairs.append((score, left, right))
+    if not pairs:
+        return ()
+    _, left, right = min(pairs, key=lambda item: item[0])
+    return tuple(image[y:y + h, x:x + w] for x, y, w, h in (left, right))
 
 
 class VisionEngine:
@@ -355,10 +400,38 @@ class VisionEngine:
             )
         crop = extract_roi(frame, roi)
 
+        static_slots = tuple(_crop_slot(crop, sub) for sub in self._hero_layout.slots)
+        cards_tuple, raw_feature = self._recognize_hero_slots(static_slots)
+        cal = self._cal("card")
+        status = self._hero_status(
+            cards_tuple, raw_feature, cal, len(self._hero_layout.slots)
+        )
+
+        # Fixed coordinates are preferred when valid. Fall back only when the
+        # table has moved because Chrome is fullscreen / its toolbar changed.
+        if status is not ValidationStatus.VALID:
+            dynamic_slots = _locate_bottom_hero_cards(frame.image)
+            if len(dynamic_slots) == len(self._hero_layout.slots):
+                dynamic_cards, dynamic_raw = self._recognize_hero_slots(dynamic_slots)
+                dynamic_status = self._hero_status(
+                    dynamic_cards, dynamic_raw, cal, len(self._hero_layout.slots)
+                )
+                if dynamic_status is ValidationStatus.VALID:
+                    cards_tuple, raw_feature, status = (
+                        dynamic_cards, dynamic_raw, dynamic_status
+                    )
+
+        conf = cal.calibrate(raw_feature).confidence
+        evidence = self._evidence(
+            frame.frame_seq, "hero_cards", None, "card",
+            raw_feature, conf, status,
+        )
+        return self._field(cards_tuple, conf, status, self._src("card"), evidence, ts)
+
+    def _recognize_hero_slots(self, slots):
         cards: list[Card] = []
         slot_scores: list[float] = []
-        for sub in self._hero_layout.slots:
-            sub_img = _crop_slot(crop, sub)
+        for sub_img in slots:
             rec = self._card.recognize(sub_img)
             # include rank AND suit: per-card raw feature is min(rank, suit).
             per_card = min(
@@ -370,21 +443,7 @@ class VisionEngine:
             slot_scores.append(per_card if rec.value else per_card)
             if rec.value:
                 cards.extend(rec.value)
-
-        cards_tuple = tuple(cards)
-        raw_feature = min(slot_scores) if slot_scores else 0.0
-        cal = self._cal("card")
-        conf = cal.calibrate(raw_feature).confidence
-
-        status = self._hero_status(
-            cards_tuple, raw_feature, cal, len(self._hero_layout.slots)
-        )
-
-        evidence = self._evidence(
-            frame.frame_seq, "hero_cards", None, "card",
-            raw_feature, conf, status,
-        )
-        return self._field(cards_tuple, conf, status, self._src("card"), evidence, ts)
+        return tuple(cards), min(slot_scores) if slot_scores else 0.0
 
     def _hero_status(self, cards, raw_feature, cal, expected_len):
         # Duplicate within hero is a DETERMINISTIC conflict: it must never be
