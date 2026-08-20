@@ -94,6 +94,41 @@ class ApplicationOrchestrator:
             hand_id=hand_id, summary=summary, ended_at=ended_at
         )
 
+    def start_next_hand(
+        self,
+        initial_state: PokerState,
+        ended_at=None,
+        started_at=None,
+    ) -> HandHistory:
+        """Close the active capture hand and start its confirmed successor.
+
+        Live capture cannot always observe showdown or a final pot.  A newly
+        confirmed, different pair of hero cards is nevertheless an unambiguous
+        hand boundary.  Keep the old record as an explicitly *unsettled*
+        history (no winners or payouts are invented), then create the new
+        active hand from a clean seed state.
+        """
+        if not isinstance(initial_state, PokerState):
+            raise TypeError("initial_state must be a PokerState")
+        active_hand_id = self._hand_memory.active_hand_id
+        if active_hand_id is None:
+            raise OrchestratorError("no active hand to replace")
+        previous_state = self._hand_memory.latest_state(active_hand_id)
+        if previous_state is None:
+            raise OrchestratorError(
+                f"active hand {active_hand_id!r} has no state"
+            )
+        if initial_state.hand_id == active_hand_id:
+            raise OrchestratorError("successor hand_id must differ from active hand")
+
+        history = self.complete_hand(
+            active_hand_id,
+            HandSummary(final_pot=previous_state.pot, winners=()),
+            ended_at=ended_at,
+        )
+        self.start_hand(initial_state, started_at=started_at)
+        return history
+
     # ------------------------------------------------------------------ pipeline
 
     def process_observation(

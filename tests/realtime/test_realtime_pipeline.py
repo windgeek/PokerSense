@@ -26,12 +26,15 @@ from poker_engine.realtime import (  # noqa: E402
     SyntheticFrameSource,
 )
 from poker_engine.state_engine import StateEngine  # noqa: E402
+from poker_engine.core.observation import ValidationStatus  # noqa: E402
 
 from orchestrator.fixtures import initial_state  # noqa: E402
 from profiles import relaxed_confidence_gate  # noqa: E402
 
 
-def _build_pipeline(frames, *, hero_confirmation_frames=1):
+def _build_pipeline(
+    frames, *, hero_confirmation_frames=1, new_hand_state_factory=None
+):
     """Assemble a realtime pipeline over a synthetic frame sequence."""
     # TEST-ONLY relaxed confidence gate (profiles.py) so synthetic template
     # confidence (max 0.9) can pass. Frozen production thresholds (0.995) are
@@ -51,6 +54,7 @@ def _build_pipeline(frames, *, hero_confirmation_frames=1):
         equity_trials=1000,
         equity_seed=7,
         hero_confirmation_frames=hero_confirmation_frames,
+        new_hand_state_factory=new_hand_state_factory,
     )
 
 
@@ -125,6 +129,35 @@ def test_hero_cards_require_two_matching_frames_when_configured():
     assert dict(first.analysis.confidence.field_status)["hero_cards"] == "unknown"
     assert [str(card) for card in second.analysis.state.hero_cards] == ["As", "Kd"]
     assert dict(second.analysis.confidence.field_status)["hero_cards"] == "valid"
+
+
+def test_confirmed_different_hero_cards_start_a_new_hand():
+    """A newly dealt pair must not be rejected as a mutation of the old hand."""
+    frames = (
+        _frame([], ["AS", "KD"], "PREFLOP", "10", "5",
+               ("100", "200", "300"), ("CHECK", "CALL"), 0),
+        _frame([], ["AS", "KD"], "PREFLOP", "10", "5",
+               ("100", "200", "300"), ("CHECK", "CALL"), 1),
+        _frame([], ["QH", "8S"], "PREFLOP", "10", "5",
+               ("100", "200", "300"), ("CHECK", "CALL"), 2),
+        _frame([], ["QH", "8S"], "PREFLOP", "10", "5",
+               ("100", "200", "300"), ("CHECK", "CALL"), 3),
+    )
+    pipe = _build_pipeline(
+        frames,
+        hero_confirmation_frames=2,
+        new_hand_state_factory=lambda: initial_state(hand_id="h2"),
+    )
+
+    _first, second, pending, new_hand = (pipe.step() for _ in range(4))
+
+    assert [str(card) for card in second.analysis.state.hero_cards] == ["As", "Kd"]
+    assert dict(pending.analysis.confidence.field_status)["hero_cards"] == (
+        ValidationStatus.UNKNOWN.value
+    )
+    assert pipe._orchestrator._hand_memory.active_hand_id == "h2"
+    assert [str(card) for card in new_hand.analysis.state.hero_cards] == ["Qh", "8s"]
+    assert new_hand.analysis_changed is True
 
 
 def test_realtime_equity_is_a_valid_probability():

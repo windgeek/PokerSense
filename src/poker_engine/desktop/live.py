@@ -329,7 +329,14 @@ def build_pipeline(
         hand_memory=InMemoryHandMemory(),
         confidence_gate=build_confidence_gate(measured),
     )
-    orchestrator.start_hand(_seed_state())
+    next_hand_number = 1
+
+    def next_hand_state() -> PokerState:
+        nonlocal next_hand_number
+        next_hand_number += 1
+        return _seed_state(hand_id=f"live-{next_hand_number}")
+
+    orchestrator.start_hand(_seed_state(hand_id="live-1"))
     frame_source = WindowFrameSource(
         build_capture_backend(),
         window_title,
@@ -350,6 +357,7 @@ def build_pipeline(
         # identical frames prevents one half-rendered / miscaptured frame
         # from becoming the canonical hand shown to the player.
         hero_confirmation_frames=2,
+        new_hand_state_factory=next_hand_state,
     )
 
 

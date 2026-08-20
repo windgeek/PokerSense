@@ -14,6 +14,7 @@ Every step is deterministic given the injected components and frame source.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from poker_engine.core.observation import RawObservation, ValidationStatus
@@ -62,6 +63,7 @@ class RealtimePipeline:
         equity_trials: int = 2000,
         equity_seed: int = 0,
         hero_confirmation_frames: int = 1,
+        new_hand_state_factory: Callable[[], PokerState] | None = None,
     ) -> None:
         if not isinstance(vision, VisionEngine):
             raise TypeError("vision must be a VisionEngine")
@@ -85,6 +87,9 @@ class RealtimePipeline:
         if hero_confirmation_frames < 1:
             raise ValueError("hero_confirmation_frames must be >= 1")
         self._hero_confirmation_frames = hero_confirmation_frames
+        if new_hand_state_factory is not None and not callable(new_hand_state_factory):
+            raise TypeError("new_hand_state_factory must be callable or None")
+        self._new_hand_state_factory = new_hand_state_factory
         self._pending_hero_cards = None
         self._pending_hero_count = 0
 
@@ -99,6 +104,19 @@ class RealtimePipeline:
 
         raw_obs = self._vision.process(frame, self._table_map)
         obs = self._confirmed_hero_observation(raw_obs)
+
+        if self._is_confirmed_new_hand(obs):
+            self._start_next_hand()
+            self._advance(obs, frame)
+            change = ChangeReport(changed=True, changed_fields=("hero_cards",))
+            self._previous_obs = obs
+            assert self._current_analysis is not None
+            return PipelineStep(
+                frame_seq=frame.frame_seq,
+                analysis=self._current_analysis,
+                change=change,
+                analysis_changed=True,
+            )
 
         if self._previous_obs is None:
             # First frame: no previous to diff against; still record the
@@ -182,6 +200,31 @@ class RealtimePipeline:
             confidence=ConfidenceSnapshot.from_observation(obs),
         )
         self._current_analysis = snapshot
+
+    def _is_confirmed_new_hand(self, obs: RawObservation) -> bool:
+        """Whether a confirmed pair marks a deal after the current one.
+
+        The StateEngine intentionally rejects a different two-card identity
+        within one hand.  Detect that boundary here, where live frames have
+        already passed temporal confirmation, and reset before the transition.
+        """
+        hero = obs.hero_cards
+        if (
+            hero.validation_status is not ValidationStatus.VALID
+            or hero.value is None
+            or len(hero.value) != 2
+        ):
+            return False
+        current_hero = self._latest_state().hero_cards
+        return len(current_hero) == 2 and tuple(hero.value) != current_hero
+
+    def _start_next_hand(self) -> None:
+        if self._new_hand_state_factory is None:
+            raise RuntimeError(
+                "confirmed new hand requires new_hand_state_factory"
+            )
+        initial_state = self._new_hand_state_factory()
+        self._orchestrator.start_next_hand(initial_state)
 
     def _latest_state(self) -> PokerState:
         active = self._orchestrator._hand_memory.active_hand_id
