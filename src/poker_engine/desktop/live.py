@@ -268,10 +268,13 @@ class WindowFrameSource:
         backend: CaptureService,
         window_title: str,
         window_index: int | None = None,
+        allow_fullscreen_fallback: bool = False,
     ) -> None:
         self._backend = backend
         self._target = CaptureTarget(
-            window_id=window_title, window_index=window_index
+            window_id=window_title,
+            window_index=window_index,
+            allow_fullscreen_fallback=allow_fullscreen_fallback,
         )
 
     def next_frame(self) -> Frame | None:
@@ -328,7 +331,15 @@ def build_pipeline(
     )
     orchestrator.start_hand(_seed_state())
     frame_source = WindowFrameSource(
-        build_capture_backend(), window_title, window_index
+        build_capture_backend(),
+        window_title,
+        window_index,
+        # The committed WePoker H5 calibration is for a full primary-display
+        # table. This recovers from macOS omitting Chrome's window title for a
+        # newly authorized packaged app without weakening generic capture.
+        allow_fullscreen_fallback=(
+            platform == DEFAULT_PLATFORM and layout == DEFAULT_LAYOUT
+        ),
     )
     return RealtimePipeline(frame_source, vision, table_map, orchestrator)
 

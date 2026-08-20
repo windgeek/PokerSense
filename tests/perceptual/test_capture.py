@@ -125,6 +125,11 @@ def test_capture_target_window_index_rejected_when_invalid(index):
         CaptureTarget(window_id="table", window_index=index)
 
 
+def test_capture_target_requires_boolean_fullscreen_fallback():
+    with pytest.raises(TypeError):
+        CaptureTarget(window_id="table", allow_fullscreen_fallback="yes")
+
+
 # --- DPI awareness fail-fast contract (mocked) ---
 
 def test_mss_backend_fails_fast_when_dpi_none(monkeypatch):

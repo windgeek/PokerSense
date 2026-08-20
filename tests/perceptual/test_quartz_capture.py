@@ -160,6 +160,20 @@ def test_capture_raises_when_image_creation_fails(monkeypatch):
         be.capture(CaptureTarget(window_id="some-window"))
 
 
+def test_capture_uses_explicit_fullscreen_fallback_when_title_is_hidden(monkeypatch):
+    be = object.__new__(qb.QuartzBackend)
+    monkeypatch.setattr(qb, "has_screen_capture_permission", lambda: True)
+    monkeypatch.setattr(
+        be,
+        "_resolve_window",
+        lambda target: (_ for _ in ()).throw(CaptureError("not found or closed")),
+    )
+    expected = object()
+    monkeypatch.setattr(be, "_capture_main_display", lambda target: expected)
+    target = CaptureTarget("WePoker-H5", allow_fullscreen_fallback=True)
+    assert be.capture(target) is expected
+
+
 # --- real capture smoke test (only runs where Quartz is actually usable) ---
 
 

@@ -113,6 +113,7 @@ class CaptureTarget:
 
     window_id: str
     window_index: int | None = None
+    allow_fullscreen_fallback: bool = False
 
     def __post_init__(self) -> None:
         if not isinstance(self.window_id, str) or not self.window_id.strip():
@@ -124,6 +125,8 @@ class CaptureTarget:
                 raise TypeError("window_index must be an int or None")
             if self.window_index < 0:
                 raise ValueError("window_index must be >= 0")
+        if not isinstance(self.allow_fullscreen_fallback, bool):
+            raise TypeError("allow_fullscreen_fallback must be a bool")
 
 
 class CaptureService:

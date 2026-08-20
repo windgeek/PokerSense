@@ -223,11 +223,54 @@ class QuartzBackend(CaptureService):
         # read back directly from the CGImage, never computed by hand.
         return window_number, WindowRect(left=left, top=top, width=width, height=height)
 
+    def _capture_main_display(self, target: CaptureTarget) -> Frame:
+        """Capture the full primary display for an explicitly opted-in target.
+
+        Quartz can occasionally expose pixel capture but omit third-party
+        window titles to a newly authorized packaged application.  WePoker's
+        calibrated full-screen layout has the same aspect ratio as the
+        primary display, so its live adapter may explicitly use this recovery
+        path.  It is never a default for arbitrary titled windows.
+        """
+        display_id = Quartz.CGMainDisplayID()
+        image_ref = Quartz.CGDisplayCreateImage(display_id)
+        if image_ref is None:
+            raise CaptureError(
+                "failed to capture the primary display after Screen Recording "
+                "permission was granted"
+            )
+        bounds = Quartz.CGDisplayBounds(display_id)
+        rect = WindowRect(
+            left=int(bounds.origin.x),
+            top=int(bounds.origin.y),
+            width=int(bounds.size.width),
+            height=int(bounds.size.height),
+        )
+        img = _cgimage_to_bgr_ndarray(image_ref)
+        height, width = img.shape[:2]
+        return Frame(
+            frame_seq=self._next_seq(),
+            timestamp=datetime.now(timezone.utc),
+            window_id=target.window_id,
+            window_rect=rect,
+            image=img,
+            width=width,
+            height=height,
+        )
+
     def capture(self, target: CaptureTarget) -> Frame:
         if not isinstance(target, CaptureTarget):
             raise TypeError("target must be a CaptureTarget")
 
-        window_number, rect = self._resolve_window(target)
+        try:
+            window_number, rect = self._resolve_window(target)
+        except CaptureError as exc:
+            if (
+                target.allow_fullscreen_fallback
+                and "not found or closed" in str(exc)
+            ):
+                return self._capture_main_display(target)
+            raise
 
         cg_rect = Quartz.CGRectMake(rect.left, rect.top, rect.width, rect.height)
         image_ref = Quartz.CGWindowListCreateImage(
