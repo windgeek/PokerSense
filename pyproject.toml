@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "poker-engine"
+version = "0.1.0"
+description = "Poker Intelligence Engine - single-table Texas Hold'em AI analysis system"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+license = { text = "Proprietary" }
+authors = [{ name = "Poker Intelligence Engine Team" }]
+# Core layer (poker_engine.core) remains zero third-party runtime dependencies.
+# numpy + opencv-python are required by the perceptual layer (Task 6/7B).
+# Exact pins (ADR: dependency audit) — do NOT loosen.
+dependencies = [
+    "numpy==2.4.6",
+    "opencv-python==4.14.0.94",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-cov",
+]
+# Windows capture backend (real screen capture for the perceptual layer).
+# CI and pure-unit tests use FakeBackend and do not need mss.
+perceptual = [
+    "mss>=9.0",
+]
+# Engineering calibration tool (tools/calibrate.py). Must match the pinned
+# opencv-python to avoid resolving a conflicting OpenCV version.
+calibrate = [
+    "opencv-python==4.14.0.94",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
