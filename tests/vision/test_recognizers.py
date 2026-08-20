@@ -15,20 +15,40 @@ from poker_engine.perceptual.vision.amount_recognizer import (
     DigitTemplateSet,
     TemplateAmountRecognizer,
 )
-from poker_engine.perceptual.vision.card_recognizer import (
-    CardTemplateSet,
-    TemplateCardRecognizer,
+from poker_engine.perceptual.vision.corner_glyph_recognizer import (
+    CornerGlyphCardRecognizer,
+    CornerGlyphGeometry,
+    CornerGlyphTemplateSet,
+    isolate_glyph,
 )
+
 
 from .fixtures.synthetic import render_card, render_digit
 
+# The synthetic renders draw a 60x84 card whose corner index sits lower and
+# wider than real WePoker art, so they need their own corner geometry.
+SYNTHETIC_GEOMETRY = CornerGlyphGeometry(
+    rank_band=(0.10, 0.46), suit_band=(0.52, 0.85), x_window=(0.05, 0.50)
+)
+
 
 def _card_templates():
+    """Corner-glyph templates cut from the synthetic renders themselves."""
     rank_labels = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"]
     suit_labels = ["S", "H", "D", "C"]
-    rank_t = {label: render_card(label, "S") for label in rank_labels}
-    suit_t = {suit: render_card("A", suit) for suit in suit_labels}
-    return CardTemplateSet(rank_templates=rank_t, suit_templates=suit_t, version="v1")
+    geom = SYNTHETIC_GEOMETRY
+    return CornerGlyphTemplateSet(
+        rank_templates={
+            label: isolate_glyph(render_card(label, "S"), geom.rank_band, geom)
+            for label in rank_labels
+        },
+        suit_templates={
+            suit: isolate_glyph(render_card("A", suit), geom.suit_band, geom)
+            for suit in suit_labels
+        },
+        version="v1",
+        geometry=geom,
+    )
 
 
 def _digit_templates():
@@ -49,7 +69,7 @@ def _action_templates():
 # ---------- card recognizer ----------
 
 def test_card_recognizes_ace_spades():
-    rec = TemplateCardRecognizer(_card_templates())
+    rec = CornerGlyphCardRecognizer(_card_templates())
     r = rec.recognize(render_card("A", "S"))
     assert r.value is not None
     assert r.value[0].rank.value == "A"
@@ -57,20 +77,20 @@ def test_card_recognizes_ace_spades():
 
 
 def test_card_recognizes_ten_hearts():
-    rec = TemplateCardRecognizer(_card_templates())
+    rec = CornerGlyphCardRecognizer(_card_templates())
     r = rec.recognize(render_card("T", "H"))
     assert r.value is not None
     assert r.value[0].rank.value == "T"
 
 
 def test_card_empty_returns_none():
-    rec = TemplateCardRecognizer(_card_templates())
+    rec = CornerGlyphCardRecognizer(_card_templates())
     r = rec.recognize(render_digit(""))  # blank-ish image
     assert r.value is None or r.raw_score < 0.5
 
 
 def test_card_deterministic():
-    rec = TemplateCardRecognizer(_card_templates())
+    rec = CornerGlyphCardRecognizer(_card_templates())
     a = rec.recognize(render_card("K", "D"))
     b = rec.recognize(render_card("K", "D"))
     assert a.value == b.value
@@ -162,8 +182,9 @@ def test_action_template_set_deep_immutable():
 def test_template_set_does_not_share_source_array():
     # Mutating the ORIGINAL array must not affect the frozen template.
     raw = render_card("A", "S")
-    ts = CardTemplateSet(rank_templates={"A": raw}, suit_templates={"S": raw},
-                         version="v1")
+    ts = CornerGlyphTemplateSet(
+        rank_templates={"A": raw}, suit_templates={"S": raw}, version="v1"
+    )
     raw[0, 0] = 123  # mutate the source
     # the frozen copy must be unchanged (was copied, not aliased)
     assert (ts.rank_templates["A"][0, 0] != 123).all()
@@ -173,8 +194,11 @@ def test_template_set_rejects_non_ndarray_value():
     # A template set must contain only ndarray image values.
     bad = {"A": "not-an-array", "S": render_card("A", "S")}
     with pytest.raises(TypeError):
-        CardTemplateSet(rank_templates=bad, suit_templates={"S": render_card("A", "S")},
-                        version="v1")
+        CornerGlyphTemplateSet(
+            rank_templates=bad,
+            suit_templates={"S": render_card("A", "S")},
+            version="v1",
+        )
 
 
 def test_template_array_cannot_re_enable_writes():
@@ -189,10 +213,11 @@ def test_recognition_result_stable_after_external_reference_mutation():
     # Recognition must NOT change if someone mutates the source ndarray AFTER
     # the template set is built (frozen copy is bytes-backed, not aliased).
     src = render_card("A", "S")
-    ts = CardTemplateSet(rank_templates={"A": src}, suit_templates={"S": src},
-                         version="v1")
+    ts = CornerGlyphTemplateSet(
+        rank_templates={"A": src}, suit_templates={"S": src}, version="v1"
+    )
 
-    rec = TemplateCardRecognizer(ts)
+    rec = CornerGlyphCardRecognizer(ts)
     before = rec.recognize(render_card("A", "S")).value
 
     # mutate the ORIGINAL source array entirely

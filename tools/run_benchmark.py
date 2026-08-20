@@ -61,9 +61,11 @@ from poker_engine.perceptual.vision.amount_recognizer import (  # noqa: E402
 from poker_engine.perceptual.vision.board_slot_detector import (  # noqa: E402
     TemplateBoardSlotDetector,
 )
-from poker_engine.perceptual.vision.card_recognizer import (  # noqa: E402
-    CardTemplateSet,
-    TemplateCardRecognizer,
+from poker_engine.perceptual.vision.corner_glyph_recognizer import (  # noqa: E402
+    CornerGlyphCardRecognizer,
+    CornerGlyphGeometry,
+    CornerGlyphTemplateSet,
+    isolate_glyph,
 )
 from poker_engine.perceptual.vision.street_detector import (  # noqa: E402
     TemplateStreetDetector,
@@ -92,6 +94,14 @@ def _cards_str(cards):
     return tuple(sorted(_card_str(c) for c in cards))
 
 
+# The synthetic renders in tests/vision/fixtures/synthetic.py draw a 60x84
+# card whose corner index sits lower and wider than real WePoker art, so it
+# needs its own corner geometry rather than the real-platform default.
+SYNTHETIC_GEOMETRY = CornerGlyphGeometry(
+    rank_band=(0.10, 0.46), suit_band=(0.52, 0.85), x_window=(0.05, 0.50)
+)
+
+
 def build_engine():
     board_layout = BoardSlotLayout(
         layout_id="b", version=1,
@@ -106,12 +116,25 @@ def build_engine():
 
     rank_labels = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"]
     suit_labels = ["S", "H", "D", "C"]
-    card_templates = CardTemplateSet(
-        rank_templates={label: render_card(label, "S") for label in rank_labels},
-        suit_templates={suit: render_card("A", suit) for suit in suit_labels},
+    card_templates = CornerGlyphTemplateSet(
+        rank_templates={
+            label: isolate_glyph(
+                render_card(label, "S"), SYNTHETIC_GEOMETRY.rank_band,
+                SYNTHETIC_GEOMETRY,
+            )
+            for label in rank_labels
+        },
+        suit_templates={
+            suit: isolate_glyph(
+                render_card("A", suit), SYNTHETIC_GEOMETRY.suit_band,
+                SYNTHETIC_GEOMETRY,
+            )
+            for suit in suit_labels
+        },
         version="v1",
+        geometry=SYNTHETIC_GEOMETRY,
     )
-    card = TemplateCardRecognizer(card_templates)
+    card = CornerGlyphCardRecognizer(card_templates)
     board_det = TemplateBoardSlotDetector(
         board_layout, empty_min_evidence=0.3, card_min_presence=0.25,
     )

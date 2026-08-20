@@ -33,24 +33,42 @@ from poker_engine.perceptual.vision.amount_recognizer import (
 from poker_engine.perceptual.vision.board_slot_detector import (
     TemplateBoardSlotDetector,
 )
-from poker_engine.perceptual.vision.card_recognizer import (
-    CardTemplateSet,
-    TemplateCardRecognizer,
+from poker_engine.perceptual.vision.corner_glyph_recognizer import (
+    CornerGlyphCardRecognizer,
+    CornerGlyphGeometry,
+    CornerGlyphTemplateSet,
+    isolate_glyph,
 )
+
 from poker_engine.perceptual.vision.street_detector import TemplateStreetDetector
 
 from .fixtures.synthetic import render_card, render_digit, render_empty_slot
 
 UTC = timezone.utc
 
+# The synthetic renders draw a 60x84 card whose corner index sits lower and
+# wider than real WePoker art, so they need their own corner geometry.
+SYNTHETIC_GEOMETRY = CornerGlyphGeometry(
+    rank_band=(0.10, 0.46), suit_band=(0.52, 0.85), x_window=(0.05, 0.50)
+)
+
 
 def _card_templates():
+    """Corner-glyph templates cut from the synthetic renders themselves."""
     rank_labels = ["A", "K", "Q", "J", "T", "9", "8", "7", "6", "5", "4", "3", "2"]
     suit_labels = ["S", "H", "D", "C"]
-    return CardTemplateSet(
-        rank_templates={label: render_card(label, "S") for label in rank_labels},
-        suit_templates={suit: render_card("A", suit) for suit in suit_labels},
+    geom = SYNTHETIC_GEOMETRY
+    return CornerGlyphTemplateSet(
+        rank_templates={
+            label: isolate_glyph(render_card(label, "S"), geom.rank_band, geom)
+            for label in rank_labels
+        },
+        suit_templates={
+            suit: isolate_glyph(render_card("A", suit), geom.suit_band, geom)
+            for suit in suit_labels
+        },
         version="v1",
+        geometry=geom,
     )
 
 
@@ -89,7 +107,7 @@ def _engine(bet_size_semantics="global"):
         slots=(CardSubROI(x=0.0, y=0.0, width=0.48, height=1.0),
                CardSubROI(x=0.5, y=0.0, width=0.48, height=1.0)),
     )
-    card = TemplateCardRecognizer(_card_templates())
+    card = CornerGlyphCardRecognizer(_card_templates())
     board_det = TemplateBoardSlotDetector(
         board_layout, empty_min_evidence=0.3, card_min_presence=0.25)
     amount = TemplateAmountRecognizer(_digit_templates())

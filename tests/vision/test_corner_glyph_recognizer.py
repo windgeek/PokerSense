@@ -22,10 +22,10 @@ from poker_engine.core.enums import Rank, Suit
 from poker_engine.perceptual.vision.corner_glyph_recognizer import (
     CornerGlyphCardRecognizer,
     CornerGlyphTemplateSet,
+    DEFAULT_GEOMETRY,
     isolate_glyph,
+    locate_card_face,
     normalize_glyph,
-    RANK_BAND,
-    SUIT_BAND,
     NORM_SIZE,
 )
 
@@ -101,21 +101,24 @@ def test_isolated_glyphs_do_not_span_the_whole_band(recognizer):
     the suit crop, which pinned the crop to the band's full height. Guarding
     the height directly is what stops that regression coming back silently.
     """
-    image = cv2.imread(str(_FIXTURE_DIR / "7S.png"))
-    band_height = int((SUIT_BAND[1] - SUIT_BAND[0]) * image.shape[0])
-    suit_glyph = isolate_glyph(image, SUIT_BAND)
+    image = locate_card_face(cv2.imread(str(_FIXTURE_DIR / "7S.png")))
+    band = DEFAULT_GEOMETRY.suit_band
+    band_height = int((band[1] - band[0]) * image.shape[0])
+    suit_glyph = isolate_glyph(image, band)
     assert suit_glyph is not None
     assert suit_glyph.shape[0] < band_height
 
 
 def test_felt_is_rejected_from_occluded_card(recognizer):
     """KH is captured with table felt visible past the card edge."""
-    image = cv2.imread(str(_FIXTURE_DIR / "KH.png"))
-    rank_glyph = isolate_glyph(image, RANK_BAND)
+    raw = cv2.imread(str(_FIXTURE_DIR / "KH.png"))
+    card = locate_card_face(raw)
+    # The felt strip is cropped away entirely before any glyph work starts.
+    assert card.shape[1] < raw.shape[1]
+
+    rank_glyph = isolate_glyph(card, DEFAULT_GEOMETRY.rank_band)
     assert rank_glyph is not None
-    # Felt runs the full band height; the rank glyph must be narrower than
-    # the whole x-window it was searched in.
-    assert rank_glyph.shape[1] < image.shape[1] * 0.41
+    assert rank_glyph.shape[1] < card.shape[1] * DEFAULT_GEOMETRY.x_window[1]
 
 
 def test_normalize_preserves_aspect_ratio():
