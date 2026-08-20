@@ -1,102 +1,115 @@
 # AGENTS.md
 
-Handoff notes for whichever agent picks this up next. Written 2026-08-20 by
-Claude after wiring the desktop app to real screen capture (see
-`git log -1` on `main`, commit `129e1a0`). Read this before touching
-`src/poker_engine/desktop/` or the capture backends.
+Project operating notes for contributors and coding agents. Read this before
+changing desktop capture, recognition, packaging, or project documentation.
 
-## Where things stand
+## Working agreement
 
-The desktop app (`make run-desktop-server`, or
-`.claude/launch.json`'s `pokersense-desktop-server` config) runs the real
-pipeline end to end: `QuartzBackend` (macOS) captures a named window,
-`CornerGlyphCardRecognizer` reads the hero cards, `MeasuredCalibration`
-(see `src/poker_engine/perceptual/vision/calibration.py`) gates confidence
-based on an actual accuracy measurement instead of an invented number, and
-the result streams to the UI over WebSocket. This was tested against a real
-captured WePoker screenshot and produced correct hero cards + plausible
-equity. Full test suite and flake8 are clean on `main`.
+1. Inspect the working tree and this file before changing code. Preserve any
+   unrelated local changes.
+2. Verify every code change in proportion to its risk. A user-facing desktop
+   change requires focused tests; a release also requires a local package
+   check before GitHub packaging.
+3. At the end of every material task, update this file's **Current state** or
+   **Progress log**. Record the outcome, affected version/commit when relevant,
+   verification performed, and any remaining limitation. Do not add routine
+   narration or duplicate git history.
+4. Keep documentation aligned with the product:
+   - Update `README.md` and `README.zh-CN.md` when installation, supported
+     behavior, privacy, or user-visible limitations change.
+   - Update the relevant file in `docs/` when a contract, architecture, or
+     subsystem behavior changes.
+   - Update release/version files together: `pyproject.toml`,
+     `src/poker_engine/__init__.py`, `packaging/pokersense.spec`, and
+     `packaging/pokersense.iss`.
+5. Remove a Markdown document only after confirming it is obsolete or fully
+   duplicated, checking references with `rg`, and moving any still-useful
+   information into its replacement. An unlinked design document is not, by
+   itself, evidence that it is disposable.
 
-Only **hero cards** are calibrated for WePoker. Board cards, pot, and
-street have no measured ROIs yet, so they read `UNKNOWN` and the UI labels
-them "not calibrated" — that's expected, not a bug. See
-`src/poker_engine/desktop/live.py`'s module docstring for the full scope
-statement.
+## Current state
 
-## Environment gotcha: `.venv` and Python version
+- Default branch: `main`, currently at `e827f62`.
+- Current release: `v0.1.8` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.8).
+- The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
+  and displays preflop equity against a random range.
+- A different hero-card pair must be visible for two consecutive frames before
+  it starts a new hand. This prevents deal-animation reads from replacing the
+  prior hand while allowing the companion window to refresh on every deal.
+- Board cards, pot, and street are deliberately unavailable until each has
+  its own measured platform calibration. Do not infer them from hero-card
+  confidence.
+- Capture frames are memory-only. The only persistent user setting is UI
+  language (`auto`, `en`, or `zh`).
 
-`pyproject.toml` supports Python 3.11–3.13. This machine only has Python
-3.13 (`python3.11`/`3.12` are not installed, no pyenv). To (re)create the
-venv on this machine:
+## Live-capture constraints
+
+- The user tests a two-player WePoker table in two Chrome windows with the
+  same title, `WePoker-H5`: the normal Chrome window is the user's seat and
+  the incognito window is the second seat.
+- Never choose a same-titled window implicitly. Use
+  `tools/list_windows.py --title WePoker-H5` and pass an explicit
+  `--window-index` when both are visible.
+- macOS capture sees windows only on the active Space. Keep the poker table
+  on the current Space while using PokerSense.
+- Screen Recording permission is tied to the executable path. A rebuilt venv
+  or a newly installed app may need permission granted again in **System
+  Settings → Privacy & Security → Screen Recording**.
+
+## Local development and packaging
+
+Python 3.11–3.13 is supported. On this machine Python 3.13 is used:
 
 ```bash
 python3 -m venv .venv
-./.venv/bin/pip install -e ".[dev,perceptual,desktop]"
+./.venv/bin/pip install -e ".[dev,perceptual,desktop,packaging]"
+
+./.venv/bin/python -m pytest -q
+./.venv/bin/python -m flake8 src tests
+./.venv/bin/pyinstaller packaging/pokersense.spec \
+  --distpath dist --workpath build --noconfirm
 ```
 
-**Screen Recording permission is tied to the exact binary path.** Every
-time `.venv` is deleted and recreated, macOS treats the new
-`.venv/bin/python3` as a different binary identity and screen-capture
-calls silently return nothing / an empty window list — no explicit error,
-just no data. If `QuartzBackend` suddenly can't see any windows after a
-fresh venv, check System Settings → Privacy & Security → Screen Recording
-and re-grant it to the new binary before assuming the capture code is
-broken.
+For a macOS build, verify the bundle version and signature structure:
 
-(Standing project convention: `.venv` gets `rm -rf`'d before every commit
-so it never lands in git. That's fine for git hygiene but means the next
-agent session on a fresh checkout has to rebuild it — see above.)
+```bash
+/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
+  dist/PokerSense.app/Contents/Info.plist
+codesign --verify --deep --strict --verbose=2 dist/PokerSense.app
+```
 
-## Live capture: two WePoker windows, macOS Spaces
+The user validates GitHub release installers. Local verification should cover
+tests, lint, package construction, bundle version, and code-signature
+structure; do not represent a local build as a clean-user installation test.
 
-The user runs a 2-max heads-up table locally by opening **two** Chrome
-windows with the same title (`WePoker-H5`) — one normal-mode (their own
-seat), one incognito-mode (their friend's seat), so they can test with two
-accounts on one machine. `QuartzBackend._resolve_window` matches windows
-by `kCGWindowName` and **deliberately raises `CaptureError` on ambiguity**
-rather than guessing which one to capture (see
-`src/poker_engine/perceptual/capture/quartz_backend.py`) — this is
-correct behavior, not a bug to route around by picking one arbitrarily.
+## Documentation map
 
-The user's own window is **the normal-mode Chrome window** (not
-incognito). The explicit selection portion is now implemented:
+- `README.md` and `README.zh-CN.md`: product scope, installation, privacy,
+  usage, and release-facing limitations.
+- `architecture.md`: overall design and data flow.
+- `docs/`: subsystem contracts and architecture decisions. Keep these files
+  concise and update the owning document rather than creating duplicate notes.
+- `configs/vision/wepoker/` and `configs/platform/`: measured recognition
+  calibration, not marketing claims. Update calibration evidence together with
+  recognizer changes.
 
-1. **Disambiguation.** `CaptureTarget.window_index` now selects a visible
-   same-title match explicitly. `tools/list_windows.py --title WePoker-H5`
-   lists index, bounds and owner; pass the chosen value via
-   `make run-desktop ARGS="--window-index N"`. Without it, two visible
-   matches remain a hard error. The index is current-list-only, so re-list
-   after rearranging windows.
+## Progress log
 
-2. **macOS Spaces.** `CGWindowListCopyWindowInfo` with
-   `kCGWindowListOptionOnScreenOnly` only returns windows on the
-   **currently active Space** (virtual desktop). While debugging this
-   session, window enumeration flickered between "sees Chrome + everything"
-   and "sees only this coding tool's own windows" depending on which Space
-   was frontmost at query time. This is a real constraint of the capture
-   approach, not a fluke: if the WePoker windows aren't on the active Space
-   when the app captures, it will correctly report "not found" — because
-   from the OS's perspective, on that Space, it isn't. This needs to be
-   either (a) documented as a real usage requirement (keep the poker table
-   on the same Space as wherever you're looking at the companion window),
-   or (b) worked around by dropping `kCGWindowListOptionOnScreenOnly` and
-   instead checking window visibility a different way (accepting
-   background-Space windows) — but that changes what "capture" means and
-   needs its own accuracy check against real content, not just window
-   metadata. I did not resolve this — ran out of turn debugging it live
-   with the user before handing off.
+- **2026-08-20 — v0.1.8:** fixed stale hero cards across hands. After two
+  matching frames show a different pair, the live pipeline closes the active
+  capture hand and starts a fresh hand. Regression coverage added; full test
+  suite, flake8, local macOS bundle validation, and GitHub macOS/Windows
+  release builds passed. Commit `e827f62` is on `main`.
+- **2026-08-20 — documentation maintenance:** rewrote English and Simplified
+  Chinese READMEs as concise product documentation; audited Markdown files.
+  Existing design documents remain in scope and were retained.
 
-## Immediate next step
+## Open work
 
-Get one concrete live repro: user switches to the Space with the normal-mode
-WePoker Chrome window, runs `tools/list_windows.py`, then starts the app with
-the printed `--window-index` if necessary. Confirm continuous hero-card
-recognition while a hand is played. Board/pot/street still require reference
-screenshots and calibration.
-
-## Longer-term (from the original roadmap, still valid)
-
-Board/pot/street calibration for WePoker is the next real milestone after
-capture is unblocked — needs the user to play a hand to the flop while
-someone takes reference screenshots to calibrate ROIs, same process used
-for the hero-card calibration in `configs/vision/wepoker/`.
+1. Collect user-labeled real captures, especially genuine recognition errors,
+   deal transitions, and result overlays, before changing hero-card templates
+   or thresholds.
+2. Calibrate board cards, pot, and street from independently measured real
+   table captures.
+3. Improve CI coverage so ordinary feature-branch pushes and pull requests run
+   the test suite, not only `main` and release tags.
