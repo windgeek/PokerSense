@@ -39,6 +39,9 @@ htmlcov/
 *.swp
 *.swo
 
+# Local Claude Code session config (dev-machine-specific, not product code)
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db

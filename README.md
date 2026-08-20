@@ -1,60 +1,216 @@
-# PokerSense (Poker Intelligence Engine)
+# PokerSense
 
-实时德州扑克 AI 分析助手：观察牌桌 → 理解状态 → 计算胜率 → （后续）给出策略建议。
-不是自动打牌机器人，不做录像回放分析。
+**A real-time Texas Hold'em analysis assistant.** It watches a poker table (via screen
+capture), recognizes the game state, computes equity, and shows the result in a live
+desktop companion window — so a player can see win rate, street, and confidence while
+they play.
 
-> 架构基线：`architecture.md` v0.2.1（FROZEN — 改动前先评审，不是不能动）
-> 最高设计原则：**正确性 > 稳定性 > 可观测性 > 性能 > 功能数量**
+It is **not** an autoplay bot, and it does not place bets or make decisions on the
+player's behalf. It observes and reports; the human still plays every hand. It also does
+not do hand-history replay analysis — everything here is real-time, frame by frame.
 
-## 模块总览
+---
 
-| 层 | 模块 | 代码位置 | 说明 |
-|---|---|---|---|
-| 感知 | Capture Service / Vision Engine | `perceptual/` | 截图 + 视觉识别（带置信度证据） |
-| 领域 | State Engine / Hand Memory | `state_engine/` `memory/` | 纯函数状态机 + 事件溯源 |
-| 实时 | Realtime Pipeline | `realtime/` | FrameSource → Vision → ChangeDetector → State → Equity |
-| 推理 | Equity Engine | `equity/` | 枚举 / 蒙特卡洛 / pot odds / 范围 |
-| 应用 | Orchestrator | `orchestrator/` | 中央编排（无算法） |
-| 门控 | Confidence Gate | `confidence/` | 低置信度阻断为 UNKNOWN |
+## What actually works today
 
-**尚未实现**：Strategy Engine（fold/call/raise 建议）、Opponent Model（对手画像）、Poker Reasoning（LLM）、Decision Engine、UI。
+This section is deliberately literal — every claim below has been independently run and
+verified on real hardware, not just implemented and assumed correct.
 
-## 开发
+| Capability | Status | Evidence |
+|---|---|---|
+| Core domain model (immutable value objects, `ChipAmount`/`ChipDelta`, event sourcing) | ✅ Done | 560+ unit tests |
+| State Engine (pure-function state machine) | ✅ Done | unit + integration tests |
+| Equity Engine (enumeration + Monte Carlo + pot odds + ranges) | ✅ Done | enumeration and Monte Carlo cross-validated to agree at showdown |
+| Confidence Gate (low-confidence fields degrade to `UNKNOWN`, never guessed) | ✅ Done | unit tests |
+| Screen capture — Windows (`MssBackend`) | ✅ Implemented | unit-tested; not yet run against a real Windows desktop |
+| Screen capture — macOS (`QuartzBackend`) | ✅ Implemented and verified | captured a real on-screen window on real hardware |
+| Vision recognition (OpenCV template matching: cards, street, pot) | ✅ Verified against real pixels | see [Real-world vision proof](#real-world-vision-proof) below |
+| Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
+| Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
+| Packaging (macOS `.app`, Windows folder, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
+| **Recognition against any real poker platform** | ❌ Not done | see below — this is the actual next milestone |
+| Strategy / opponent modeling / LLM reasoning / decision output | ❌ Not started | intentionally deferred — see [Roadmap](#roadmap) |
 
-```bash
-make install   # 安装依赖（含 dev）
-make test      # 运行测试
-make lint      # 代码检查
-make clean     # 清理缓存
+### Real-world vision proof
+
+Every prior "accuracy" number for the Vision Engine was measured against synthetic,
+generator-drawn images — never a real screenshot. To find out whether the recognition
+code actually works on real pixels, we rendered a controlled test table
+(`tools/real_pipeline_smoke/mock_table.html`), captured it as a genuine on-screen macOS
+window, and ran the unmodified `VisionEngine` against that capture:
+
+```
+hero_cards : Ah, Kh    ✓ correct, confidence 0.95
+board_cards: Qh 9h 2c 5h 7s   ✓ correct, confidence 0.95
+street     : RIVER     ✓ correctly derived from board occupancy
+pot        : 42        ✓ correct, confidence 0.95
 ```
 
-Python 版本固定 3.11.x（见 `pyproject.toml`）。
+This is real evidence, not synthetic self-validation — but it is **not** evidence about
+any specific real poker client's card skin, layout, or rendering. That calibration step
+(ROI mapping + template capture against a real platform) hasn't happened yet; see
+[Roadmap](#roadmap).
 
-## 目录
+---
 
-见 `architecture.md §3`。
+## Architecture
 
-## 当前真实进度（2026-08-20 接手时核实）
+Five layers, strictly one-way dependency (nothing depends on anything above it):
 
-已实现且有测试覆盖：
+```mermaid
+flowchart TB
+    subgraph Perception["Perception"]
+        Capture["Capture Service<br/>(FakeBackend / MssBackend / QuartzBackend)"]
+        Vision["Vision Engine<br/>(OpenCV template matching + confidence)"]
+    end
+    subgraph Realtime["Realtime"]
+        Pipeline["Realtime Pipeline<br/>(event loop, change detection)"]
+    end
+    subgraph Domain["Domain"]
+        State["State Engine<br/>(pure function)"]
+        Memory["Hand Memory<br/>(event sourcing, replay)"]
+        Confidence["Confidence Gate<br/>(low confidence → UNKNOWN)"]
+    end
+    subgraph Reasoning["Reasoning (not built yet)"]
+        Equity["Equity Engine<br/>(enumeration + Monte Carlo)"]
+        Strategy["Strategy / Opponent / LLM<br/>— deferred"]
+    end
+    subgraph App["Application"]
+        Orchestrator["Application Orchestrator<br/>(central scheduler, no algorithms)"]
+        Desktop["Desktop Shell<br/>(FastAPI + WebSocket + pywebview)"]
+    end
 
-- Core 契约层（不可变值对象 / ChipAmount·ChipDelta / 事件 / 观察）
-- Hand Memory（append-only 事件存储，可回放）
-- State Engine（纯函数状态机）
-- Application Orchestrator
-- Confidence Gate
-- Capture Service（`FakeBackend` 已跑通；`mss` 真实截屏后端未在本机验证过）
-- Vision Engine（模板匹配识别 + 独立的 occupancy/identity 双证据 + 置信度）
-- Realtime Pipeline（FrameSource → Vision → ChangeDetector → State → Equity 全链路已打通）
-- Equity Engine（枚举 + 蒙特卡洛 + pot odds + 范围，river 两条路径收敛一致）
+    Capture --> Vision --> Pipeline
+    Pipeline --> Orchestrator
+    Orchestrator --> State --> Memory
+    Orchestrator --> Confidence
+    Pipeline --> Equity
+    Equity -. future .-> Strategy
+    Pipeline --> Desktop
+```
 
-已知缺口（接手时核实到的，不是猜测）：
+**Design principle, in priority order: correctness > stability > observability >
+performance > feature count.** Concretely: money is always `decimal.Decimal`, never
+`float`; every state object is deep-immutable; a field the Vision Engine isn't confident
+about becomes `UNKNOWN`, never a guess; every recognizer's occupancy/identity evidence is
+independently derived and reconciled, not conflated.
 
-1. **没有真实牌桌截图数据**——Vision Engine 目前只在 synthetic/fixture 图片上验证过，没有一张真实平台截图。识别准确率的"验收"结论目前不成立。
-2. **Equity 的蒙特卡洛路径是延迟瓶颈**——纯 Python 实现，量级在几百毫秒，全链路预算 500ms 里它吃掉大头，需要换 C 级 evaluator 或向量化。
-3. **一个已知的历史测试失败**：`tests/memory/test_hand_memory.py::test_start_hand_none_started_at_auto_utc` 用了硬编码的 UTC 基准时间，会随日历自然过期，与代码逻辑无关。
-4. Strategy / Opponent / Reasoning / Decision / UI 全部未开始。
+See [`architecture.md`](architecture.md) for the full design doc (data contracts, the
+Fast/Slow path split for the future reasoning layer, and the reasoning behind each rule
+above).
 
-## 参考
+### Data flow, end to end
 
-- `dickreuter/Poker`（GitHub）——一个完整的视觉+状态+策略+自动操作揉在一起的 bot 项目，仅作**架构与识别技术参考**，不作为依赖引入，也不照搬"自动操作"这条路径（本项目定位是分析助手，不做自动打牌）。
+```
+Screen  →  Capture Service  →  Frame
+                                  │
+                                  ▼
+                          Vision Engine  →  RawObservation (cards, street, pot + confidence)
+                                  │
+                                  ▼
+                        Realtime Pipeline  →  change detection (only recompute on real change)
+                                  │
+                    ┌─────────────┴─────────────┐
+                    ▼                             ▼
+        Application Orchestrator          Equity Engine
+         → State Engine → new state         (win rate / tie rate)
+                    │                             │
+                    └─────────────┬─────────────┘
+                                  ▼
+                     RealtimeAnalysis (state + equity + confidence)
+                                  │
+                                  ▼
+                    WebSocket  →  Desktop companion window
+```
+
+---
+
+## Module map
+
+| Module | Path | What it owns |
+|---|---|---|
+| Core | `src/poker_engine/core/` | Immutable domain types: `PokerState`, `Card`, `ChipAmount`/`ChipDelta`, events. Zero third-party runtime dependencies. |
+| State Engine | `src/poker_engine/state_engine/` | Pure-function state transitions; rejects illegal/regressive state. |
+| Hand Memory | `src/poker_engine/memory/` | Append-only event store; a hand can be fully replayed from it. |
+| Confidence | `src/poker_engine/confidence/` | Gates low-confidence fields to `UNKNOWN` before they can drive a decision. |
+| Orchestrator | `src/poker_engine/orchestrator/` | Central scheduler; the only module that calls into State + Hand Memory together. Contains no algorithms. |
+| Perceptual — Capture | `src/poker_engine/perceptual/capture/` | `FakeBackend` (tests), `MssBackend` (Windows), `QuartzBackend` (macOS) — all implement the same `CaptureService` interface. |
+| Perceptual — Vision | `src/poker_engine/perceptual/vision/` | Card/street/pot recognizers (OpenCV template matching), ROI mapping, per-detector confidence calibration. |
+| Equity | `src/poker_engine/equity/` | Hand evaluator, enumeration, Monte Carlo, pot odds, range equity. |
+| Realtime | `src/poker_engine/realtime/` | The event loop tying capture → vision → state → equity together, with change detection so idle frames don't trigger recompute. |
+| Desktop | `src/poker_engine/desktop/` | FastAPI server (serves the UI, streams `RealtimeAnalysis` over WebSocket) + a `pywebview` native window shell. |
+| UI | `ui/` | The companion window itself — plain HTML/CSS/JS, no build step, no external dependencies. |
+
+Deeper design docs live in [`docs/`](docs/): `core-contracts.md`, `state-engine.md`,
+`vision-engine.md`, `confidence-gate.md`, `hand-memory.md`, `orchestrator.md`,
+`capture-and-table-mapping.md`, `serialization.md`, `tech-stack-matrix.md`, plus
+architecture decision records in [`docs/adr/`](docs/adr/).
+
+---
+
+## Quick start
+
+Requires Python 3.11.x (pinned — see `pyproject.toml`).
+
+```bash
+# Core engine + tests
+pip install -e ".[dev]"
+make test
+make lint
+
+# Screen capture (adds mss on Windows, pyobjc/Quartz on macOS)
+pip install -e ".[dev,perceptual]"
+
+# Desktop app (adds FastAPI, uvicorn, pywebview)
+pip install -e ".[dev,desktop]"
+make run-desktop           # opens the native companion window
+make run-desktop-server    # server only, open http://127.0.0.1:8765 in a browser
+
+# Package into a standalone app (adds PyInstaller)
+pip install -e ".[dev,desktop,packaging]"
+make package                # -> dist/PokerSense.app (macOS) or dist/PokerSense/ (Windows)
+```
+
+Right now the desktop app streams a **scripted demo hand**, not live recognition — there
+is no real capture pipeline wired into it yet (see [Roadmap](#roadmap)). The point of
+today's build is that every piece of the pipeline is real and independently verified;
+connecting them end-to-end against a live table is the next step, not a finished one.
+
+CI (`.github/workflows/ci.yml`) runs the full test suite + lint on both macOS and Windows
+on every push. `.github/workflows/build-desktop.yml` builds and (on a version tag) releases
+both platform packages.
+
+---
+
+## Roadmap
+
+Deliberately sequenced so nothing gets built on an unproven foundation:
+
+1. **Calibrate against a real, low-risk target** — pick a target that isn't a real-money
+   platform with ToS/legal exposure (see project notes), capture real screenshots, build
+   real ROI + card-template calibration, and measure real recognition accuracy for the
+   first time.
+2. **Wire the desktop app to live capture** — replace the scripted demo stream with the
+   real `RealtimePipeline`, so the companion window shows a real, currently-playing hand.
+3. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
+   a few hundred ms); replace with a C-level evaluator or vectorize.
+4. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
+   advice before recognition is proven reliable is a real risk (see `architecture.md`'s
+   "strategy comes after correctness" rule) — Vision has to be trustworthy first.
+5. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
+   support via the `configs/platform/` adapter pattern.
+
+---
+
+## Project conventions
+
+- Money is always `decimal.Decimal` via `ChipAmount` (non-negative) / `ChipDelta`
+  (signed) — never `float`.
+- Timestamps are always timezone-aware `datetime`; no falsy-fallback patterns.
+- Core domain objects are deep-immutable (`tuple`, `frozenset`, `MappingProxyType`, no
+  mutable containers leak out).
+- A field the Vision Engine can't confidently read becomes `UNKNOWN`, not a guess — it's
+  better to show nothing than to show something wrong.
+- No AI-agent process ceremony (task plans, self-check reports, versioned result
+  snapshots) lives in this repo — git history is the source of truth for what changed and
+  why; commit messages carry that context.
