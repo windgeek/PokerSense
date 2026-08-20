@@ -177,8 +177,11 @@ today's build is that every piece of the pipeline is real and independently veri
 connecting them end-to-end against a live table is the next step, not a finished one.
 
 CI (`.github/workflows/ci.yml`) runs the full test suite + lint on both macOS and Windows
-on every push. `.github/workflows/build-desktop.yml` builds and (on a version tag) releases
-both platform packages.
+on every push. `.github/workflows/build-desktop.yml` builds a proper installer for each
+platform — a `.dmg` on macOS (signed + notarized if the Apple Developer secrets are
+configured, unsigned otherwise) and a `PokerSense-Setup.exe` on Windows (via Inno Setup)
+— and attaches both to a GitHub Release on a version tag (`git tag v0.1.0 && git push
+origin v0.1.0`).
 
 ---
 

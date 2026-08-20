@@ -1,6 +1,7 @@
 name: Build Desktop App
 
-# Builds the PyInstaller desktop shell for macOS and Windows.
+# Builds the PyInstaller desktop shell for macOS (.dmg, via create-dmg) and
+# Windows (a proper installer .exe, via Inno Setup).
 #
 # Runs on every push to main (so build breakage is caught immediately) and
 # can be triggered manually. Tag pushes (v*) additionally attach the built
@@ -78,24 +79,41 @@ jobs:
           mkdir -p ~/private_keys
           echo "$APPLE_API_KEY" > ~/private_keys/"AuthKey_${APPLE_API_KEY_ID}.p8"
 
-          ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense.zip
-          xcrun notarytool submit dist/PokerSense.zip \
+          # Notarization wants a zip/dmg of the .app, not the .app itself.
+          # The stapled ticket ends up on the .app; the DMG built below just
+          # carries that already-stapled .app.
+          ditto -c -k --keepParent dist/PokerSense.app dist/notarize-submission.zip
+          xcrun notarytool submit dist/notarize-submission.zip \
             --key ~/private_keys/"AuthKey_${APPLE_API_KEY_ID}.p8" \
             --key-id "$APPLE_API_KEY_ID" \
             --issuer "$APPLE_API_ISSUER" \
             --wait
           xcrun stapler staple dist/PokerSense.app
-          rm -f dist/PokerSense.zip
-          ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense-macos.zip
+          rm -f dist/notarize-submission.zip
 
-      - name: Zip (unsigned fallback)
-        if: ${{ env.MACOS_CERTIFICATE == '' }}
-        run: ditto -c -k --keepParent dist/PokerSense.app dist/PokerSense-macos.zip
+      - name: Build .dmg
+        run: |
+          brew install create-dmg
+          # create-dmg's Finder-styling AppleScript step is known to exit
+          # non-zero on headless CI runners even when the dmg is built fine
+          # -- check for the actual output file, not the exit code.
+          create-dmg \
+            --volname "PokerSense" \
+            --window-pos 200 120 \
+            --window-size 600 400 \
+            --icon-size 100 \
+            --icon "PokerSense.app" 175 190 \
+            --hide-extension "PokerSense.app" \
+            --app-drop-link 425 190 \
+            --no-internet-enable \
+            dist/PokerSense-macos.dmg \
+            dist/PokerSense.app || true
+          test -f dist/PokerSense-macos.dmg
 
       - uses: actions/upload-artifact@v4
         with:
           name: PokerSense-macos
-          path: dist/PokerSense-macos.zip
+          path: dist/PokerSense-macos.dmg
 
   build-windows:
     runs-on: windows-latest
@@ -112,13 +130,18 @@ jobs:
       - name: Build .exe
         run: pyinstaller packaging/pokersense.spec --distpath dist --workpath build --noconfirm
 
-      - name: Zip
-        run: Compress-Archive -Path dist/PokerSense -DestinationPath dist/PokerSense-windows.zip
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Build installer
+        # choco installs ISCC.exe to Program Files but doesn't reliably put
+        # it on PATH within the same job -- call it by its known location.
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" packaging\pokersense.iss'
 
       - uses: actions/upload-artifact@v4
         with:
           name: PokerSense-windows
-          path: dist/PokerSense-windows.zip
+          path: dist/PokerSense-Setup.exe
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -133,5 +156,5 @@ jobs:
       - uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/PokerSense-macos/PokerSense-macos.zip
-            artifacts/PokerSense-windows/PokerSense-windows.zip
+            artifacts/PokerSense-macos/PokerSense-macos.dmg
+            artifacts/PokerSense-windows/PokerSense-Setup.exe
