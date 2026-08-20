@@ -49,6 +49,13 @@ def test_window_not_found(monkeypatch):
         be._resolve_window(CaptureTarget(window_id="missing-window"))
 
 
+def test_window_resolution_explains_missing_screen_permission(monkeypatch):
+    monkeypatch.setattr(qb, "has_screen_capture_permission", lambda: False)
+    be = object.__new__(qb.QuartzBackend)
+    with pytest.raises(CaptureError, match="Screen Recording permission"):
+        be._resolve_window(CaptureTarget(window_id="table"))
+
+
 def test_window_ambiguous(monkeypatch):
     monkeypatch.setattr(
         qb,

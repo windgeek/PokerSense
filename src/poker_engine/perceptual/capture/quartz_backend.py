@@ -75,6 +75,28 @@ def _find_window_matches(title: str) -> tuple[list[dict], list[dict]]:
     return all_matches, onscreen_matches
 
 
+def has_screen_capture_permission() -> bool:
+    """Return whether this exact app identity may inspect/capture windows.
+
+    macOS assigns Screen Recording permission to the signed app identity, so
+    a terminal running the source tree and the packaged PokerSense.app do not
+    share it.  Without permission Quartz can return an incomplete window list
+    that is indistinguishable from a missing title unless checked first.
+    """
+    preflight = getattr(Quartz, "CGPreflightScreenCaptureAccess", None)
+    return bool(preflight()) if preflight is not None else True
+
+
+def request_screen_capture_permission() -> bool:
+    """Request Screen Recording access for the running app, if needed."""
+    if has_screen_capture_permission():
+        return True
+    request = getattr(Quartz, "CGRequestScreenCaptureAccess", None)
+    if request is not None:
+        request()
+    return has_screen_capture_permission()
+
+
 @dataclass(frozen=True)
 class WindowCandidate:
     """A selectable, currently visible macOS window.
@@ -152,6 +174,12 @@ class QuartzBackend(CaptureService):
 
     def _resolve_window(self, target: CaptureTarget) -> tuple[int, WindowRect]:
         window_id = target.window_id
+        if not has_screen_capture_permission():
+            raise CaptureError(
+                "Screen Recording permission is required for PokerSense. "
+                "Enable PokerSense in System Settings > Privacy & Security > "
+                "Screen Recording, then reopen the app."
+            )
         all_matches, onscreen_matches = _find_window_matches(window_id)
 
         if not all_matches:
@@ -229,4 +257,10 @@ class QuartzBackend(CaptureService):
         )
 
 
-__all__ = ["QuartzBackend", "WindowCandidate", "list_window_candidates"]
+__all__ = [
+    "QuartzBackend",
+    "WindowCandidate",
+    "has_screen_capture_permission",
+    "list_window_candidates",
+    "request_screen_capture_permission",
+]

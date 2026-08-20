@@ -9,7 +9,13 @@ from .base import (
 )
 from .fake_backend import FakeBackend
 from .mss_backend import MssBackend
-from .quartz_backend import QuartzBackend, WindowCandidate, list_window_candidates
+from .quartz_backend import (
+    QuartzBackend,
+    WindowCandidate,
+    has_screen_capture_permission,
+    list_window_candidates,
+    request_screen_capture_permission,
+)
 
 __all__ = [
     "CaptureError",
@@ -21,5 +27,7 @@ __all__ = [
     "MssBackend",
     "QuartzBackend",
     "WindowCandidate",
+    "has_screen_capture_permission",
     "list_window_candidates",
+    "request_screen_capture_permission",
 ]

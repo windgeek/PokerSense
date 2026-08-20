@@ -11,6 +11,7 @@ overlay on top of it (see architecture notes on why).
 from __future__ import annotations
 
 import argparse
+import sys
 import threading
 
 import uvicorn
@@ -22,6 +23,17 @@ HOST = "127.0.0.1"
 PORT = 8765
 WINDOW_WIDTH = 400
 WINDOW_HEIGHT = 520
+
+
+def _request_capture_permission_if_needed() -> None:
+    """Ask at app launch, on macOS' main thread, before capture begins."""
+    if sys.platform != "darwin":
+        return
+    from poker_engine.perceptual.capture.quartz_backend import (
+        request_screen_capture_permission,
+    )
+
+    request_screen_capture_permission()
 
 
 def _run_server(window_title: str, window_index: int | None) -> None:
@@ -36,6 +48,7 @@ def main(
 ) -> None:
     import webview
 
+    _request_capture_permission_if_needed()
     server_thread = threading.Thread(
         target=_run_server, args=(window_title, window_index), daemon=True
     )
