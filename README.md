@@ -29,6 +29,7 @@ verified on real hardware, not just implemented and assumed correct.
 | Vision recognition (OpenCV template matching) | ✅ Verified against real pixels | see [Real-platform calibration](#real-platform-calibration) below |
 | Realtime pipeline (Capture → Vision → State → Equity, one event loop) | ✅ Working | wired and run end to end, driven by a real capture |
 | Desktop UI (companion window, live-updating) | ✅ Working | FastAPI + WebSocket backend, HTML/CSS/JS frontend, verified live |
+| UI language | ✅ Working | first run follows the system; English/Chinese choices persist across app restarts |
 | Desktop app driven by **real screen capture** | ✅ Working against a captured screenshot | recognizes hero cards and computes real equity — no scripted data anywhere in the app |
 | Continuous live capture during an active session | ✅ Usable on the active Space | Same-titled windows can be selected explicitly; the table must be on the current macOS Space |
 | Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
@@ -108,6 +109,18 @@ make run-desktop-server ARGS="--window-index 0"
 
 The index is the current window-list order, not a persistent ID. Re-run the command
 after rearranging windows, switching Spaces, or reopening Chrome.
+
+### Privacy and local storage
+
+PokerSense processes screen frames **in memory only**. It does not write captured
+frames, screenshots, or a frame history to disk; each frame is recognized and then
+discarded. The only user preference currently stored is the selected UI language:
+
+- macOS: `~/Library/Application Support/PokerSense/settings.json`
+- Windows: `%APPDATA%\\PokerSense\\settings.json`
+
+The file is a small JSON preference (`auto`, `en`, or `zh`) and is atomically replaced
+rather than appended to. On first run, `auto` follows the operating system language.
 
 ---
 

@@ -19,7 +19,8 @@ from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Callable
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 from fastapi.staticfiles import StaticFiles
 from starlette.responses import Response
 
@@ -27,6 +28,7 @@ from poker_engine.realtime.analysis import RealtimeAnalysis
 
 from .live import DEFAULT_WINDOW_TITLE, LiveCaptureError, live_analysis_stream
 from .serialize import analysis_to_dict
+from .settings import load_settings, save_language
 
 
 def _resolve_ui_dir() -> Path:
@@ -45,6 +47,10 @@ def _resolve_ui_dir() -> Path:
 _UI_DIR = _resolve_ui_dir()
 
 AnalysisStreamFactory = Callable[[], AsyncIterator[RealtimeAnalysis]]
+
+
+class _SettingsPayload(BaseModel):
+    language: str
 
 
 class _NoCacheStaticFiles(StaticFiles):
@@ -71,6 +77,17 @@ def _default_stream() -> AsyncIterator[RealtimeAnalysis]:
 
 def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastAPI:
     app = FastAPI()
+
+    @app.get("/settings")
+    def get_settings() -> dict[str, str]:
+        return load_settings()
+
+    @app.put("/settings")
+    def put_settings(payload: _SettingsPayload) -> dict[str, str]:
+        try:
+            return save_language(payload.language)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @app.websocket("/ws")
     async def ws_endpoint(websocket: WebSocket) -> None:

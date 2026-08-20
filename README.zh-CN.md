@@ -25,6 +25,7 @@
 | 视觉识别（OpenCV 模板匹配） | ✅ 已用真实像素验证 | 见下方 [真实平台标定](#真实平台标定) |
 | 实时链路（Capture → Vision → State → Equity，单一事件循环） | ✅ 可运行 | 由真实截屏驱动，端到端跑通 |
 | 桌面 UI（伴随窗口，实时刷新） | ✅ 可运行 | FastAPI + WebSocket 后端，HTML/CSS/JS 前端，已验证实时生效 |
+| UI 语言 | ✅ 可用 | 首次跟随系统；中英文选择会跨应用重启保存 |
 | 桌面 App 由**真实截屏**驱动 | ✅ 针对一张真实截图验证通过 | 识别底牌并计算真实胜率——App 里没有任何写死的演示数据 |
 | 打牌过程中的持续实时截屏 | ✅ 可用（当前 Space） | 同名窗口可显式选择；牌桌必须在当前活动的 macOS Space |
 | 打包（macOS `.dmg`、Windows 安装包 `.exe`，通过 GitHub Actions） | ✅ 可运行 | CI 构建与打 tag 发布均已成功 |
@@ -94,6 +95,17 @@ make run-desktop-server ARGS="--window-index 0"
 ```
 
 序号是当前窗口列表中的顺序，不是永久 ID；调整窗口、切换 Space 或重开 Chrome 后，应重新运行列窗命令。
+
+### 隐私与本地存储
+
+PokerSense 的屏幕帧只在**内存**中处理：不会把截屏、帧图或帧历史写入磁盘；每一帧识别完成后即释放。
+目前唯一持久化的用户偏好是界面语言：
+
+- macOS：`~/Library/Application Support/PokerSense/settings.json`
+- Windows：`%APPDATA%\\PokerSense\\settings.json`
+
+这是一个很小的 JSON 文件，只保存 `auto`、`en` 或 `zh`；每次以原子替换方式更新，不会累积。首次运行时
+`auto` 跟随操作系统语言。
 
 ---
 

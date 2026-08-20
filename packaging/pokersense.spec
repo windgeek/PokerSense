@@ -83,7 +83,7 @@ if sys.platform == "darwin":
         icon=None,
         bundle_identifier="com.pokersense.desktop",
         info_plist={
-            "CFBundleShortVersionString": "0.1.6",
+            "CFBundleShortVersionString": "0.1.7",
             "NSHighResolutionCapable": True,
             # Screen Recording is requested at first-capture time by macOS
             # itself (TCC), not declarable via Info.plist alone.

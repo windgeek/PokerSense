@@ -11,7 +11,7 @@
 ; is CI running on windows-latest, same as everything else Windows-side.
 
 #define MyAppName "PokerSense"
-#define MyAppVersion "0.1.6"
+#define MyAppVersion "0.1.7"
 #define MyAppExeName "PokerSense.exe"
 
 [Setup]

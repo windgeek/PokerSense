@@ -42,6 +42,7 @@ const els = {
 let lastBoardCount = 0;
 let lastAnalysis = null;
 let status = { message: "connecting", tone: "", raw: false };
+let savedLanguagePreference = "auto";
 
 function systemLanguage() {
   const locale = (navigator.languages && navigator.languages[0]) || navigator.language || "en";
@@ -49,8 +50,7 @@ function systemLanguage() {
 }
 
 function languagePreference() {
-  const value = localStorage.getItem(LANGUAGE_STORAGE_KEY) || "auto";
-  return ["auto", "en", "zh"].includes(value) ? value : "auto";
+  return savedLanguagePreference;
 }
 
 function activeLanguage() {
@@ -181,9 +181,32 @@ function connect() {
 
 els.settingsButton.addEventListener("click", () => els.settingsDialog.showModal());
 els.languageSelect.addEventListener("change", () => {
-  localStorage.setItem(LANGUAGE_STORAGE_KEY, els.languageSelect.value);
+  savedLanguagePreference = els.languageSelect.value;
+  // Keep this as an upgrade fallback, but the desktop server is the durable
+  // source because WKWebView storage may be ephemeral between app launches.
+  try { localStorage.setItem(LANGUAGE_STORAGE_KEY, savedLanguagePreference); } catch (_) {}
+  fetch("/settings", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ language: savedLanguagePreference }),
+    keepalive: true,
+  }).catch(() => {});
   applyLanguage();
 });
 
-applyLanguage();
+async function loadLanguagePreference() {
+  let fallback = "auto";
+  try { fallback = localStorage.getItem(LANGUAGE_STORAGE_KEY) || "auto"; } catch (_) {}
+  savedLanguagePreference = ["auto", "en", "zh"].includes(fallback) ? fallback : "auto";
+  try {
+    const response = await fetch("/settings", { cache: "no-store" });
+    const settings = await response.json();
+    if (response.ok && ["auto", "en", "zh"].includes(settings.language)) {
+      savedLanguagePreference = settings.language;
+    }
+  } catch (_) {}
+  applyLanguage();
+}
+
+loadLanguagePreference();
 connect();
