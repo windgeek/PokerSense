@@ -17,13 +17,12 @@ from .equity import (
     ExactRandomRangeEquity,
     MonteCarloRandomRangeEquity,
 )
-from .frame_source import FrameSource, MSSFrameSource, SyntheticFrameSource
+from .frame_source import FrameSource, SyntheticFrameSource
 from .pipeline import PipelineStep, RealtimePipeline
 
 __all__ = [
     "FrameSource",
     "SyntheticFrameSource",
-    "MSSFrameSource",
     "ChangeReport",
     "detect_change",
     "StateSnapshot",

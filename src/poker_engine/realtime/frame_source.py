@@ -1,13 +1,12 @@
 """FrameSource abstraction for the realtime pipeline.
 
 The realtime layer consumes a *stream* of frames without knowing where they
-come from. Two implementations:
-  - :class:`SyntheticFrameSource` — replays a pre-built sequence of frames
-    (tests / CI / benchmark). Deterministic.
-  - :class:`MSSFrameSource` — wraps the existing MSS capture backend for real
-    screen capture. Present only as an interface stub; the realtime pipeline
-    does NOT enable it by default (auto-capturing real platforms is out of
-    scope).
+come from. :class:`SyntheticFrameSource` replays a pre-built sequence of
+frames deterministically, for tests and CI.
+
+A live-capture source is just another implementation of the
+:class:`FrameSource` protocol, pulling from a ``CaptureService`` backend
+(``MssBackend`` on Windows, ``QuartzBackend`` on macOS).
 
 Only the frame *lifecycle* is owned here: the frame's pixel data remains the
 immutable ``Frame`` from the capture layer.
@@ -48,19 +47,4 @@ class SyntheticFrameSource:
         return frame
 
 
-class MSSFrameSource:
-    """Real-screen frame source (interface stub; NOT enabled by default).
-
-    Auto-capturing real poker platforms (GGPoker/WePoker/...) is out of scope
-    and must not be wired into the pipeline. This stub exists only so the
-    realtime layer exposes a uniform FrameSource shape for a future, explicitly
-    approved capture source.
-    """
-
-    def __init__(self) -> None:
-        raise NotImplementedError(
-            "MSSFrameSource is a stub; real screen capture is out of scope"
-        )
-
-
-__all__ = ["FrameSource", "SyntheticFrameSource", "MSSFrameSource"]
+__all__ = ["FrameSource", "SyntheticFrameSource"]

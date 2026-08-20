@@ -7,13 +7,22 @@ Real mode is a **Real Adapter Smoke Test**: it verifies the end-to-end data
 path (image -> Frame -> TableMap -> VisionEngine -> RawObservation -> GT), NOT
 a full real-world accuracy benchmark. It does NOT establish real accuracy.
 
-Covers all applicable Task 7B fields: hero_cards, board_cards, street, pot,
-bet_size, stack, action. Synthetic and Real are reported separately; Synthetic
-results never claim Frozen FINAL acceptance.
+Covers hero_cards, board_cards, street, pot, bet_size, stack, action.
+
+``--mode synthetic`` renders its own tables via ``gen_wepoker_dataset`` and
+exercises pipeline plumbing end to end. It does NOT measure real-world
+recognition accuracy — synthetic art is far cleaner than a real client's, so
+a synthetic score says nothing about a real table. For that, see
+``tests/vision/test_corner_glyph_recognizer.py``, which runs against real
+captured card art.
+
+``--mode real`` scores a golden JSON of real captures. No such dataset is
+committed yet; the hero-card calibration in ``configs/vision/wepoker/`` is
+currently validated by the test above instead.
 
 Run:
   python tools/run_benchmark.py --mode synthetic --out benchmark-results.json
-  python tools/run_benchmark.py --mode real --golden datasets/golden/real/small.json
+  python tools/run_benchmark.py --mode real --golden path/to/golden.json
 """
 
 from __future__ import annotations
