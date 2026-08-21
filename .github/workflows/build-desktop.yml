@@ -45,7 +45,7 @@ jobs:
 
       - name: Install
         run: |
-          python -m pip install -e ".[desktop,packaging]"
+          python -m pip install -e ".[desktop,perceptual,packaging]"
 
       - name: Build .app
         run: |
@@ -125,7 +125,10 @@ jobs:
           python-version: "3.11"
 
       - name: Install
-        run: python -m pip install -e ".[desktop,packaging]"
+        run: python -m pip install -e ".[desktop,perceptual,packaging]"
+
+      - name: Verify Windows capture dependency
+        run: python -c "import mss; print(mss.__version__)"
 
       - name: Build .exe
         run: pyinstaller packaging/pokersense.spec --distpath dist --workpath build --noconfirm

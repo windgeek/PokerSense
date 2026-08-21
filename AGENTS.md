@@ -30,7 +30,7 @@ changing desktop capture, recognition, packaging, or project documentation.
 ## Current state
 
 - Default branch: `main`, currently at `e827f62`.
-- Current release: `v0.1.8` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.8).
+- Release being prepared: `v0.1.9`.
 - The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
   and displays preflop equity against a random range.
 - A different hero-card pair must be visible for two consecutive frames before
@@ -95,6 +95,22 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-21 — v0.1.9 release preparation:** fixed the Windows packaged
+  app's missing `mss` dependency, wait for the local uvicorn server before
+  opening the webview, and convert capture initialization/runtime failures to
+  recoverable UI errors instead of closing the WebSocket. Added focused
+  regression tests and a Windows workflow dependency check. Full verification
+  and GitHub release packaging remain pending.
+- **2026-08-21 — Windows v0.1.8 startup diagnosis:** the release workflow
+  installs `.[desktop,packaging]` but omits the `perceptual` extra that provides
+  `mss`.  The frozen Windows app can therefore serve its UI, but opening `/ws`
+  raises an uncaught `RuntimeError` while constructing `MssBackend`; the UI
+  reports a disconnect and reconnects indefinitely.  The first-launch
+  `ERR_CONNECTION_REFUSED` is a separate server-readiness race because the
+  webview navigates immediately after starting the server thread.  Windows has
+  no macOS-style Screen Recording permission prompt.  Diagnosis was verified
+  by tracing the packaging, desktop startup, WebSocket, and capture code paths;
+  no product code or release artifact was changed.
 - **2026-08-20 — v0.1.8:** fixed stale hero cards across hands. After two
   matching frames show a different pair, the live pipeline closes the active
   capture hand and starts a fresh hand. Regression coverage added; full test

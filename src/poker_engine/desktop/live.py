@@ -371,12 +371,23 @@ async def live_analysis_stream(
     Capture and recognition are CPU-bound and run off the event loop, so the
     server stays responsive between frames.
     """
-    pipeline = await asyncio.to_thread(build_pipeline, window_title, window_index)
+    try:
+        pipeline = await asyncio.to_thread(
+            build_pipeline, window_title, window_index
+        )
+    except LiveCaptureError:
+        raise
+    except Exception as exc:
+        raise LiveCaptureError(
+            f"capture engine initialization failed: {exc}"
+        ) from exc
     while True:
         try:
             step = await asyncio.to_thread(pipeline.step)
         except (LiveCaptureError, TableMapError) as exc:
             raise LiveCaptureError(str(exc)) from exc
+        except Exception as exc:
+            raise LiveCaptureError(f"capture engine failed: {exc}") from exc
         if step is not None:
             yield step.analysis
         await asyncio.sleep(interval_seconds)

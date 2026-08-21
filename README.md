@@ -40,6 +40,9 @@ it to PokerSense in **System Settings → Privacy & Security → Screen Recordin
 then return to the app. The permission is tied to the installed application;
 replacing or rebuilding the app can require granting it again.
 
+Windows does not show a Screen Recording permission prompt. PokerSense uses
+the local Windows desktop-capture APIs directly.
+
 ## Use with WePoker H5
 
 1. Open the WePoker H5 table and keep it visible.

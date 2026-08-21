@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import sys
 import threading
+import time
 
 import uvicorn
 
@@ -23,6 +24,7 @@ HOST = "127.0.0.1"
 PORT = 8765
 WINDOW_WIDTH = 400
 WINDOW_HEIGHT = 520
+SERVER_STARTUP_TIMEOUT_SECONDS = 10.0
 
 
 def _request_capture_permission_if_needed() -> None:
@@ -36,11 +38,32 @@ def _request_capture_permission_if_needed() -> None:
     request_screen_capture_permission()
 
 
-def _run_server(window_title: str, window_index: int | None) -> None:
+def _create_server(
+    window_title: str, window_index: int | None
+) -> uvicorn.Server:
     def stream():
         return live_analysis_stream(window_title, window_index)
 
-    uvicorn.run(create_app(stream), host=HOST, port=PORT, log_level="warning")
+    config = uvicorn.Config(
+        create_app(stream), host=HOST, port=PORT, log_level="warning"
+    )
+    return uvicorn.Server(config)
+
+
+def _wait_for_server(
+    server: uvicorn.Server,
+    server_thread: threading.Thread,
+    timeout_seconds: float = SERVER_STARTUP_TIMEOUT_SECONDS,
+) -> None:
+    """Wait until uvicorn is listening before navigating the native webview."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if server.started:
+            return
+        if not server_thread.is_alive():
+            raise RuntimeError("PokerSense local server stopped during startup")
+        time.sleep(0.02)
+    raise RuntimeError("PokerSense local server did not start within 10 seconds")
 
 
 def main(
@@ -49,10 +72,12 @@ def main(
     import webview
 
     _request_capture_permission_if_needed()
+    server = _create_server(window_title, window_index)
     server_thread = threading.Thread(
-        target=_run_server, args=(window_title, window_index), daemon=True
+        target=server.run, daemon=True
     )
     server_thread.start()
+    _wait_for_server(server, server_thread)
 
     webview.create_window(
         "PokerSense",
