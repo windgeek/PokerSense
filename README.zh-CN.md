@@ -2,11 +2,12 @@
 
 [English](README.md) | **简体中文**
 
-**一个实时德州扑克分析助手。** 它通过截屏观察牌桌，识别当前局面，计算胜率，并把结果实时显示在一个
-桌面伴随窗口里——让玩家在打牌的同时就能看到胜率、街道（street）和识别置信度。
+**一个面向授权自建牌局的实时德州扑克训练助手。** 它通过截屏观察牌桌，重建可信局面，并把分析实时
+显示在桌面伴随窗口里。当前版本输出状态和胜率；v0.3 目标会进一步输出可解释的动作频率、尺度、EV
+和置信度。
 
-它**不是**自动打牌机器人，不会替玩家下注或做决策——它只观察和汇报，每一手牌都由真人自己打。它也不
-是录像回放分析工具——这里的一切都是实时的，逐帧进行。
+它**不是**自动打牌机器人：不会点击、输入、下注或控制牌局客户端，真人始终是唯一执行者。目标场景是
+朋友自建牌局、对练、教学和刻意训练。
 
 ---
 
@@ -31,7 +32,7 @@
 | 打包（macOS `.dmg`、Windows 安装包 `.exe`，通过 GitHub Actions） | ✅ 可运行 | CI 构建与打 tag 发布均已成功 |
 | 真实平台底牌识别（WePoker H5） | ✅ 已标定并实测 | 留出样本 48/48 全对——见 [真实平台标定](#真实平台标定) |
 | 真实平台的公共牌 / 底池 / 街道识别 | ❌ 未完成 | 目前只标定了底牌区域 |
-| 策略建议 / 对手画像 / LLM 推理 / 决策输出 | ❌ 未开始 | 有意延后，见 [路线图](#路线图) |
+| 可解释建议 / 范围追踪 / 策略路由 / 训练反馈 | 🧭 目标架构 | 契约和实施顺序已写入 [v0.3 架构](architecture.md) |
 
 ### 置信度是"挣来的"，不是"定出来的"
 
@@ -111,71 +112,30 @@ PokerSense 的屏幕帧只在**内存**中处理：不会把截屏、帧图或�
 
 ## 架构
 
-五层，严格单向依赖（上层依赖下层，反之不成立）：
+![PokerSense v0.3 目标架构](docs/realtime-training-assistant.drawio.svg)
 
-```mermaid
-flowchart TB
-    subgraph Perception["感知层"]
-        Capture["Capture Service<br/>(FakeBackend / MssBackend / QuartzBackend)"]
-        Vision["Vision Engine<br/>(OpenCV 模板匹配 + 置信度)"]
-    end
-    subgraph Realtime["实时层"]
-        Pipeline["Realtime Pipeline<br/>(事件循环, 变化检测)"]
-    end
-    subgraph Domain["领域层"]
-        State["State Engine<br/>(纯函数)"]
-        Memory["Hand Memory<br/>(事件溯源, 可回放)"]
-        Confidence["Confidence Gate<br/>(低置信度 → UNKNOWN)"]
-    end
-    subgraph Reasoning["推理层（尚未实现）"]
-        Equity["Equity Engine<br/>(枚举 + 蒙特卡洛)"]
-        Strategy["Strategy / Opponent / LLM<br/>— 延后"]
-    end
-    subgraph App["应用层"]
-        Orchestrator["Application Orchestrator<br/>(中央调度, 无算法)"]
-        Desktop["Desktop Shell<br/>(FastAPI + WebSocket + pywebview)"]
-    end
-
-    Capture --> Vision --> Pipeline
-    Pipeline --> Orchestrator
-    Orchestrator --> State --> Memory
-    Orchestrator --> Confidence
-    Pipeline --> Equity
-    Equity -. 未来 .-> Strategy
-    Pipeline --> Desktop
-```
+这个 SVG 内嵌了 draw.io 源数据，可以直接用 draw.io 打开继续编辑。图中上方/左侧的可信基础已有部分
+实现；Strategy Router、Decision Fusion 和训练闭环是按里程碑逐步落地的 v0.3 目标。
 
 **设计原则，按优先级排序：正确性 > 稳定性 > 可观测性 > 性能 > 功能数量。** 具体体现为：金额永远用
 `decimal.Decimal`，绝不用 `float`；所有状态对象深层不可变；Vision Engine 没把握的字段一律变成
 `UNKNOWN`，绝不瞎猜；每个识别器的"占用情况"和"牌面身份"这两条证据各自独立产生、互相校验，不会
 被混在一起。
 
-完整设计文档见 [`architecture.md`](architecture.md)（数据契约、面向未来推理层的 Fast/Slow path 拆分、
-以及上面每条规则背后的原因）。
+完整设计文档见 [`architecture.md`](architecture.md)，其中包括数据契约、延迟预算、范围与 EV 算法、
+Fast/Slow 策略路由、拒答规则和每个里程碑的退出标准。
 
 ### 端到端数据流
 
+```text
+授权牌桌 → Capture → Vision → Temporal Consensus → Confidence Gate
+  → State/Event Engine v2 → DecisionContext
+  → Range + Equity + Strategy Router → Decision Fusion → Advice → Live Coach UI
+  → 真人动作 → Hand Memory → 复盘 / 训练题 → 改善后续牌局先验
 ```
-屏幕  →  Capture Service  →  Frame
-                                  │
-                                  ▼
-                          Vision Engine  →  RawObservation（牌面/街道/底池 + 置信度）
-                                  │
-                                  ▼
-                        Realtime Pipeline  →  变化检测（只有真正变化才重新计算）
-                                  │
-                    ┌─────────────┴─────────────┐
-                    ▼                             ▼
-        Application Orchestrator          Equity Engine
-         → State Engine → 新状态              (胜率 / 平局率)
-                    │                             │
-                    └─────────────┬─────────────┘
-                                  ▼
-                     RealtimeAnalysis（状态 + 胜率 + 置信度）
-                                  │
-                                  ▼
-                    WebSocket  →  桌面伴随窗口
-```
+
+第一份结果来自确定性的本地 Fast Path。缓存未命中或 EV 很接近时，可以异步启动本地 resolver；只有
+`hand_id` 和 `state_version` 仍然匹配的结果才能更新界面。关键状态不确定时输出 `ABSTAIN`，绝不猜测。
 
 ---
 
@@ -277,18 +237,19 @@ git push origin v0.1.0`）会自动把两个安装包发布到 GitHub Release。
 
 ## 路线图
 
-刻意排了顺序，避免在没验证过的地基上继续盖楼：
+从现在到“有用而可靠的建议”，最短路线是：
 
-1. **解开打牌过程中实时截屏的卡点** —— 见上方[已知问题](#已知问题打牌过程中的实时截屏)。公共牌/
-   底池/街道的标定得先解决这个——标定需要在真实打一手牌的过程中采集参考帧。
-2. **完成真实平台标定的剩余部分** —— 底牌已完成（见上）。公共牌、底池金额、街道判断这三块还需要
-   在真实牌桌上做 ROI 标定并实测准确率。
-3. **Equity 性能优化** —— 蒙特卡洛路径是延迟瓶颈（纯 Python，几百毫秒量级），需要换成 C 级别的
-   evaluator 或做向量化。
-4. **策略建议 / 对手画像 / 决策输出** —— 故意放在最后。在识别还没被证明可靠之前就给出行动建议是
-   真实的风险（见 `architecture.md` 里"策略建议后置于正确性"的规则）——Vision 必须先值得信任。
-5. **正式分发** —— 签名/公证的正式构建、自动更新、通过 `configs/platform/` 适配器模式支持多平台
-   牌面皮肤。
+1. **M1 — 可信的 heads-up 完整状态：** 标定公共牌、底池、筹码、行动方和动作；加入多帧共识、下注
+   合法性、hand boundary 和筹码守恒。
+2. **M2 — 可解释的基础建议：** 落地 `DecisionContext`、组合范围贝叶斯更新、preflop DB、range
+   equity、action EV 和 `Advice`，并把真实 Fast Path 首次建议 p95 控制在 300ms 内。
+3. **M3 — 预解库与训练闭环：** canonical solution bundle、EV loss 复盘、漏点分类和训练题；实时与
+   局后分析共用同一套接口。
+4. **M4 — 鲁棒对手调整：** 小样本向总体先验收缩，用 KL 正则约束剥削偏移，并限制最坏损失。
+5. **M5 — 异步局部精算：** 先做 river subgame，设置计算预算并丢弃过期结果；Slow Path 永不阻塞
+   第一份建议。
+
+详细交付物与退出标准见 [`architecture.md` 第 9 节](architecture.md#9-最优实施路线)。
 
 ---
 

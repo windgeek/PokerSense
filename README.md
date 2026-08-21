@@ -2,14 +2,14 @@
 
 **English** | [简体中文](README.zh-CN.md)
 
-**A real-time Texas Hold'em analysis assistant.** It watches a poker table (via screen
-capture), recognizes the game state, computes equity, and shows the result in a live
-desktop companion window — so a player can see win rate, street, and confidence while
-they play.
+**A real-time Texas Hold'em training assistant for authorized, self-hosted games.** It
+watches a poker table (via screen capture), reconstructs a trustworthy game state, and
+shows analysis in a live companion window. The current build reports state and equity;
+the v0.3 target adds explainable action frequencies, sizes, EVs, and confidence.
 
-It is **not** an autoplay bot, and it does not place bets or make decisions on the
-player's behalf. It observes and reports; the human still plays every hand. It also does
-not do hand-history replay analysis — everything here is real-time, frame by frame.
+It is **not** an autoplay bot: it never clicks, types, places bets, or controls a poker
+client. The human remains the only executor. The intended environment is a private table
+with friends, coaching, and deliberate practice.
 
 ---
 
@@ -35,7 +35,7 @@ verified on real hardware, not just implemented and assumed correct.
 | Packaging (macOS `.dmg`, Windows installer `.exe`, via GitHub Actions) | ✅ Working | CI builds and a tagged release both succeeded |
 | Hero-card recognition on a real platform (WePoker H5) | ✅ Calibrated and measured | 48/48 on held-out real captures — see [Real-platform calibration](#real-platform-calibration) |
 | Board cards / pot / street on a real platform | ❌ Not done | only the hero-card region has been calibrated so far |
-| Strategy / opponent modeling / LLM reasoning / decision output | ❌ Not started | intentionally deferred — see [Roadmap](#roadmap) |
+| Explainable advice / range tracking / strategy routing / training feedback | 🧭 Target architecture | contracts and implementation order are defined in [v0.3 architecture](architecture.md) |
 
 ### Confidence is earned, not chosen
 
@@ -126,39 +126,11 @@ rather than appended to. On first run, `auto` follows the operating system langu
 
 ## Architecture
 
-Five layers, strictly one-way dependency (nothing depends on anything above it):
+![PokerSense v0.3 target architecture](docs/realtime-training-assistant.drawio.svg)
 
-```mermaid
-flowchart TB
-    subgraph Perception["Perception"]
-        Capture["Capture Service<br/>(FakeBackend / MssBackend / QuartzBackend)"]
-        Vision["Vision Engine<br/>(OpenCV template matching + confidence)"]
-    end
-    subgraph Realtime["Realtime"]
-        Pipeline["Realtime Pipeline<br/>(event loop, change detection)"]
-    end
-    subgraph Domain["Domain"]
-        State["State Engine<br/>(pure function)"]
-        Memory["Hand Memory<br/>(event sourcing, replay)"]
-        Confidence["Confidence Gate<br/>(low confidence → UNKNOWN)"]
-    end
-    subgraph Reasoning["Reasoning (not built yet)"]
-        Equity["Equity Engine<br/>(enumeration + Monte Carlo)"]
-        Strategy["Strategy / Opponent / LLM<br/>— deferred"]
-    end
-    subgraph App["Application"]
-        Orchestrator["Application Orchestrator<br/>(central scheduler, no algorithms)"]
-        Desktop["Desktop Shell<br/>(FastAPI + WebSocket + pywebview)"]
-    end
-
-    Capture --> Vision --> Pipeline
-    Pipeline --> Orchestrator
-    Orchestrator --> State --> Memory
-    Orchestrator --> Confidence
-    Pipeline --> Equity
-    Equity -. future .-> Strategy
-    Pipeline --> Desktop
-```
+The SVG embeds its draw.io source and can be opened directly in draw.io for editing.
+Solid foundations on the left/top are already partially implemented; the strategy,
+decision-fusion, and training-loop modules are the staged v0.3 target.
 
 **Design principle, in priority order: correctness > stability > observability >
 performance > feature count.** Concretely: money is always `decimal.Decimal`, never
@@ -166,33 +138,23 @@ performance > feature count.** Concretely: money is always `decimal.Decimal`, ne
 about becomes `UNKNOWN`, never a guess; every recognizer's occupancy/identity evidence is
 independently derived and reconciled, not conflated.
 
-See [`architecture.md`](architecture.md) for the full design doc (data contracts, the
-Fast/Slow path split for the future reasoning layer, and the reasoning behind each rule
-above).
+See [`architecture.md`](architecture.md) for the canonical design: data contracts,
+latency budget, range and EV algorithms, Fast/Slow strategy routing, abstention rules,
+and the milestone exit criteria.
 
 ### Data flow, end to end
 
+```text
+Authorized table → Capture → Vision → Temporal Consensus → Confidence Gate
+  → State/Event Engine v2 → DecisionContext
+  → Range + Equity + Strategy Router → Decision Fusion → Advice → Live Coach UI
+  → Human action → Hand Memory → Debrief / drills → better priors for later hands
 ```
-Screen  →  Capture Service  →  Frame
-                                  │
-                                  ▼
-                          Vision Engine  →  RawObservation (cards, street, pot + confidence)
-                                  │
-                                  ▼
-                        Realtime Pipeline  →  change detection (only recompute on real change)
-                                  │
-                    ┌─────────────┴─────────────┐
-                    ▼                             ▼
-        Application Orchestrator          Equity Engine
-         → State Engine → new state         (win rate / tie rate)
-                    │                             │
-                    └─────────────┬─────────────┘
-                                  ▼
-                     RealtimeAnalysis (state + equity + confidence)
-                                  │
-                                  ▼
-                    WebSocket  →  Desktop companion window
-```
+
+The first result comes from a deterministic local Fast Path. Cache misses and close
+decisions may start an asynchronous local resolver; a result is accepted only when its
+`hand_id` and `state_version` still match. Any critical state uncertainty produces
+`ABSTAIN`, not a guessed recommendation.
 
 ---
 
@@ -308,18 +270,21 @@ origin v0.1.0`).
 
 ## Roadmap
 
-Deliberately sequenced so nothing gets built on an unproven foundation:
+The shortest route to useful, reliable advice is:
 
-1. **Finish real-platform calibration** — hero cards are done (see above). Board cards,
-   pot amount, and street detection still need ROI calibration and accuracy measurement
-   against a real table.
-2. **Equity performance** — the Monte Carlo path is the latency bottleneck (pure Python,
-   a few hundred ms); replace with a C-level evaluator or vectorize.
-3. **Strategy / opponent modeling / decision output** — intentionally last. Giving action
-   advice before recognition is proven reliable is a real risk (see `architecture.md`'s
-   "strategy comes after correctness" rule) — Vision has to be trustworthy first.
-4. **Distribution** — signed/notarized builds, auto-update, multi-platform card-skin
-   support via the `configs/platform/` adapter pattern.
+1. **M1 — trustworthy heads-up state:** calibrate board, pot, stacks, actor, and actions;
+   add temporal consensus, betting legality, hand boundaries, and chip conservation.
+2. **M2 — explainable baseline advice:** add `DecisionContext`, Bayesian combo ranges,
+   preflop DB, range equity, action EV, `Advice`, and a measured p95 ≤300 ms Fast Path.
+3. **M3 — presolved library and training loop:** canonical solution bundles, EV-loss
+   debriefs, leak classification, and drills using the same interfaces as live advice.
+4. **M4 — robust opponent adjustment:** shrink small samples toward population priors and
+   use KL-regularized exploit adjustments with a bounded worst-case loss.
+5. **M5 — asynchronous local resolution:** start with river subgames; enforce compute
+   budgets and discard stale results. Slow results never block first advice.
+
+Detailed deliverables and exit criteria are in
+[`architecture.md` §9](architecture.md#9-最优实施路线).
 
 ---
 
