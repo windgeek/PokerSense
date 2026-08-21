@@ -30,7 +30,7 @@ changing desktop capture, recognition, packaging, or project documentation.
 ## Current state
 
 - Default branch: `main`.
-- Release being prepared: `v0.1.11`.
+- Current release: `v0.1.11` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.11), source commit `f963181`.
 - The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
   and displays preflop equity against a random range.
 - A different hero-card pair must be visible for two consecutive frames before
@@ -95,14 +95,16 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
-- **2026-08-21 — v0.1.11 release preparation:** a real Windows retest showed
+- **2026-08-21 — v0.1.11:** a real Windows retest showed
   Chrome exposes the table as `WePoker-H5 - Google Chrome`, while the Windows
   backend still required an exact `WePoker-H5` title. Windows matching now
   normalizes titles, accepts generic host suffixes only at explicit separator
   boundaries, supports `window_index`, and honors the existing opt-in primary
   display fallback for the full-screen WePoker calibration. It does not bind
   behavior to a Chrome-specific suffix or use arbitrary substring matching.
-  Focused and full local tests plus flake8 passed; CI and packaging are pending.
+  Focused and full local tests, flake8, local packaging checks, macOS/Windows
+  CI, both installer builds, and GitHub release upload passed. Source commit
+  `f963181`; clean-user Windows retest remains pending.
 - **2026-08-21 — v0.1.10:** after v0.1.9 fixed startup,
   a real Windows run exposed the next blocker: the WebView host had already
   established a non-Per-Monitor process DPI mode. `MssBackend` now uses
