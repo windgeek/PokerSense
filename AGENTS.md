@@ -95,6 +95,15 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-21 — v0.3 target architecture:** replaced the frozen v0.2.1
+  plan with a staged architecture for authorized, self-hosted training. The
+  design adds trusted temporal perception, State/Event Engine v2, Bayesian
+  range tracking, Fast/Slow strategy routing, Decision Fusion, abstention,
+  and a live-to-debrief training loop. English and Chinese product docs now
+  distinguish current capabilities from the M1–M5 target. The embedded-source
+  draw.io SVG passed XML validation, draw.io reopen/export, and visual review;
+  the full test suite and flake8 passed. Documentation only; no runtime or
+  release artifact changed.
 - **2026-08-21 — v0.1.11:** a real Windows retest showed
   Chrome exposes the table as `WePoker-H5 - Google Chrome`, while the Windows
   backend still required an exact `WePoker-H5` title. Windows matching now
