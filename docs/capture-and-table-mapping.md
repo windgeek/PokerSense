@@ -32,7 +32,9 @@ Windows 的 WebView 宿主可能先设置进程级 DPI 模式。`MssBackend` 因
 
 ## 边界
 
-- minimized / closed → `CaptureError`（不 fallback 全屏）。
+- Windows 窗口标题匹配接受稳定标题本身，或由标准分隔符追加的任意宿主后缀；不做任意子串匹配。
+- 多个匹配窗口必须显式提供 `window_index`，不自动猜测。
+- minimized / closed → `CaptureError`。只有 `CaptureTarget` 明确设置 `allow_fullscreen_fallback` 且没有匹配窗口时，才允许回退主显示器；当前仅全屏标定的 WePoker H5 live adapter 会启用。
 - occlusion 是 mss backend limitation，不谎称截图恒等于窗口完整内容。
 - `Frame → ROI crops` 纯确定性（`int()` floor 舍入）。
 

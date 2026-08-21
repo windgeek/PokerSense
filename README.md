@@ -62,6 +62,10 @@ choose one silently. For development use, list the windows and select an index:
 make run-desktop ARGS="--window-index 0"
 ```
 
+On Windows, browser-added title suffixes such as ` - Google Chrome` are
+handled automatically; PokerSense matches the stable page title rather than a
+specific browser name.
+
 The index follows the current window order. Run the command again after moving,
 reopening, or switching windows.
 

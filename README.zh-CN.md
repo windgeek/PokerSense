@@ -51,6 +51,8 @@ make run-desktop ARGS="--window-index 0"
 
 这个序号来自当前窗口顺序。移动、重开或切换窗口后，请重新查询。
 
+Windows 浏览器追加的窗口标题后缀（例如 ` - Google Chrome`）会自动处理；PokerSense 匹配稳定的页面标题，不绑定某个浏览器名称。
+
 ## 隐私与本地数据
 
 屏幕帧只在内存中用于识别，处理后即丢弃。PokerSense 不保存截图、视频或帧历史。

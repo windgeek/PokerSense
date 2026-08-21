@@ -275,6 +275,51 @@ def test_capture_establishes_dpi_on_the_actual_worker_thread(monkeypatch):
         backend.capture(CaptureTarget(window_id="table"))
 
 
+@pytest.mark.parametrize(
+    ("actual", "expected"),
+    [
+        ("WePoker-H5", True),
+        ("  WePoker-H5  ", True),
+        ("wepoker-h5 - Google Chrome", True),
+        ("WePoker-H5 — Microsoft Edge", True),
+        ("WePoker-H5 | Browser", True),
+        ("Other WePoker-H5 - Google Chrome", False),
+        ("WePoker-H5-copy - Google Chrome", False),
+    ],
+)
+def test_windows_title_matcher_handles_generic_host_suffix(actual, expected):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    assert mb._window_title_matches(actual, "WePoker-H5") is expected
+
+
+def test_missing_window_uses_explicit_fullscreen_fallback(monkeypatch):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    class FakeMss:
+        monitors = [
+            {"left": 0, "top": 0, "width": 3840, "height": 1080},
+            {"left": 1920, "top": 0, "width": 1920, "height": 1080},
+        ]
+
+    monkeypatch.setattr(mb, "_find_hwnd_matches", lambda title: [])
+    backend = object.__new__(mb.MssBackend)
+    backend._sct = FakeMss()
+    target = CaptureTarget(window_id="WePoker-H5", allow_fullscreen_fallback=True)
+
+    assert backend._resolve_window_rect(target) == WindowRect(1920, 0, 1920, 1080)
+
+
+def test_ambiguous_windows_require_an_explicit_index(monkeypatch):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    monkeypatch.setattr(mb, "_find_hwnd_matches", lambda title: [101, 202])
+    backend = object.__new__(mb.MssBackend)
+
+    with pytest.raises(CaptureError, match="ambiguous"):
+        backend._resolve_window_rect(CaptureTarget(window_id="WePoker-H5"))
+
+
 # --- IsIconic -> CaptureError (mocked) ---
 
 def test_minimized_window_raises_capture_error(monkeypatch):
@@ -294,7 +339,7 @@ def test_minimized_window_raises_capture_error(monkeypatch):
     monkeypatch.setattr(mb, "_user32", _FakeUser32Min())
     be = object.__new__(mb.MssBackend)  # bypass __init__ (no real mss/DPI)
     with pytest.raises(CaptureError):
-        be._resolve_window_rect("some-title")
+        be._resolve_window_rect(CaptureTarget(window_id="some-title"))
 
 
 def test_fake_backend_derives_dims_from_image():

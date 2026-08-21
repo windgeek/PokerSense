@@ -149,8 +149,30 @@ def _try_set_dpi_awareness() -> str:
     return "none"
 
 
+def _normalized_title(title: str) -> str:
+    """Normalize cosmetic title differences without weakening identity."""
+    return " ".join(title.split()).casefold()
+
+
+def _window_title_matches(actual: str, requested: str) -> bool:
+    """Match a page title with an optional browser/app suffix.
+
+    Browsers expose titles such as ``WePoker-H5 - Google Chrome`` while the
+    page's stable identity is ``WePoker-H5``. Accept common title separators,
+    but never an arbitrary substring match that could select another page.
+    """
+    actual_normalized = _normalized_title(actual)
+    requested_normalized = _normalized_title(requested)
+    if actual_normalized == requested_normalized:
+        return True
+    return any(
+        actual_normalized.startswith(f"{requested_normalized}{separator}")
+        for separator in (" - ", " – ", " — ", " | ")
+    )
+
+
 def _find_hwnd_matches(title: str) -> list[int]:
-    """Return HWNDs whose window title EXACTLY equals ``title`` (and visible)."""
+    """Return visible HWNDs matching a stable page/application title."""
     matches: list[int] = []
 
     @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
@@ -160,7 +182,7 @@ def _find_hwnd_matches(title: str) -> list[int]:
             if length > 0:
                 buf = ctypes.create_unicode_buffer(length + 1)
                 _user32.GetWindowTextW(hwnd, buf, length + 1)
-                if buf.value == title:
+                if _window_title_matches(buf.value, title):
                     matches.append(hwnd)
         return True
 
@@ -199,17 +221,40 @@ class MssBackend(CaptureService):
         """Exposed DPI-awareness result for verifiability / smoke reports."""
         return self._dpi_status
 
-    def _resolve_window_rect(self, window_id: str) -> WindowRect:
+    def _primary_display_rect(self) -> WindowRect:
+        monitors = self._sct.monitors
+        if len(monitors) < 2:
+            raise CaptureError("primary display is unavailable for capture")
+        primary = monitors[1]
+        return WindowRect(
+            left=int(primary["left"]),
+            top=int(primary["top"]),
+            width=int(primary["width"]),
+            height=int(primary["height"]),
+        )
+
+    def _resolve_window_rect(self, target: CaptureTarget) -> WindowRect:
+        window_id = target.window_id
         matches = _find_hwnd_matches(window_id)
 
         if len(matches) == 0:
+            if target.allow_fullscreen_fallback:
+                return self._primary_display_rect()
             raise CaptureError(f"target window {window_id!r} not found or closed")
-        if len(matches) > 1:
+        if len(matches) > 1 and target.window_index is None:
             raise CaptureError(
-                f"target window {window_id!r} is ambiguous ({len(matches)} matches)"
+                f"target window {window_id!r} is ambiguous ({len(matches)} matches); "
+                "set window_index explicitly"
             )
-
-        hwnd = matches[0]
+        if target.window_index is not None:
+            if target.window_index >= len(matches):
+                raise CaptureError(
+                    f"window_index {target.window_index} is out of range for "
+                    f"{window_id!r} ({len(matches)} visible matches)"
+                )
+            hwnd = matches[target.window_index]
+        else:
+            hwnd = matches[0]
         if not _user32.IsWindow(hwnd):
             raise CaptureError(f"target window {window_id!r} is closed")
         if not _user32.IsWindowVisible(hwnd):
@@ -258,7 +303,7 @@ class MssBackend(CaptureService):
                 "DPI awareness could not be established for the capture thread"
             )
 
-        rect = self._resolve_window_rect(target.window_id)
+        rect = self._resolve_window_rect(target)
         monitor = {
             "left": rect.left,
             "top": rect.top,
