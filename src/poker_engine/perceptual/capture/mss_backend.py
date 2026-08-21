@@ -75,6 +75,26 @@ def _is_current_context_per_monitor() -> bool:
         return False
 
 
+def _try_set_thread_dpi_awareness() -> bool:
+    """Override the current worker thread to Per-Monitor V2 awareness.
+
+    A packaged WebView host may establish a process-wide DPI mode before the
+    capture backend starts. Windows 10's mixed-mode DPI API still permits the
+    capture worker itself to use Per-Monitor V2 coordinates, which is exactly
+    the scope needed by ClientToScreen and mss.
+    """
+    if not _HAS_WIN32:  # pragma: no cover - non-Windows
+        return False
+    try:
+        fn = _user32.SetThreadDpiAwarenessContext
+        fn.argtypes = [ctypes.c_void_p]
+        fn.restype = ctypes.c_void_p
+        previous = fn(_DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)
+        return bool(previous) and _is_current_context_per_monitor()
+    except (AttributeError, OSError):  # pragma: no cover - older Windows
+        return False
+
+
 def _try_set_dpi_awareness() -> str:
     """Declare per-monitor DPI awareness (v2 preferred), returning status.
 
@@ -82,6 +102,7 @@ def _try_set_dpi_awareness() -> str:
       - "v2"                       -> SetProcessDpiAwarenessContext(v2) succeeded.
       - "already_set_per_monitor"  -> already configured AND verified per-monitor.
       - "fallback"                 -> set via legacy SetProcessDpiAwareness(2).
+      - "thread_v2"                -> current worker overridden to Per-Monitor V2.
       - "none"                     -> genuine failure or cannot prove per-monitor.
     """
     if not _HAS_WIN32:  # pragma: no cover - non-Windows
@@ -102,7 +123,8 @@ def _try_set_dpi_awareness() -> str:
             # awareness is per-monitor — ACCESS_DENIED alone is not enough.
             if _is_current_context_per_monitor():
                 return "already_set_per_monitor"
-            return "none"
+            # A WebView host can legitimately establish a different process
+            # default first. Continue to the thread-level mixed-DPI fallback.
         # Any other error is a genuine failure: do NOT silently succeed.
     except (AttributeError, OSError):  # pragma: no cover - older Windows
         pass
@@ -117,14 +139,13 @@ def _try_set_dpi_awareness() -> str:
         if hr_val == 0:  # S_OK
             return "fallback"
         if hr_val == 0x80070005:  # E_ACCESSDENIED -> already set, verify actual
-            return (
-                "already_set_per_monitor"
-                if _is_current_context_per_monitor()
-                else "none"
-            )
+            if _is_current_context_per_monitor():
+                return "already_set_per_monitor"
     except (AttributeError, OSError):  # pragma: no cover - older Windows
         pass
 
+    if _try_set_thread_dpi_awareness():
+        return "thread_v2"
     return "none"
 
 
@@ -225,6 +246,17 @@ class MssBackend(CaptureService):
     def capture(self, target: CaptureTarget) -> Frame:
         if not isinstance(target, CaptureTarget):
             raise TypeError("target must be a CaptureTarget")
+
+        # asyncio.to_thread may schedule successive frames on different pool
+        # threads. DPI awareness is a thread property in a mixed-mode WebView
+        # process, so establish it on the thread doing this exact capture.
+        if (
+            not _is_current_context_per_monitor()
+            and not _try_set_thread_dpi_awareness()
+        ):
+            raise CaptureError(
+                "DPI awareness could not be established for the capture thread"
+            )
 
         rect = self._resolve_window_rect(target.window_id)
         monitor = {

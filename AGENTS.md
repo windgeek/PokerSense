@@ -30,7 +30,7 @@ changing desktop capture, recognition, packaging, or project documentation.
 ## Current state
 
 - Default branch: `main`.
-- Current release: `v0.1.9` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.9), source commit `91de955`.
+- Release being prepared: `v0.1.10`.
 - The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
   and displays preflop equity against a random range.
 - A different hero-card pair must be visible for two consecutive frames before
@@ -95,6 +95,13 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-21 — v0.1.10 release preparation:** after v0.1.9 fixed startup,
+  a real Windows run exposed the next blocker: the WebView host had already
+  established a non-Per-Monitor process DPI mode. `MssBackend` now uses
+  Windows mixed-mode DPI and establishes Per-Monitor V2 on every capture
+  worker thread before reading physical-pixel coordinates. Focused and full
+  local tests plus flake8 passed; Windows CI and release packaging remain
+  pending.
 - **2026-08-21 — v0.1.9:** fixed the Windows packaged
   app's missing `mss` dependency, wait for the local uvicorn server before
   opening the webview, and convert capture initialization/runtime failures to

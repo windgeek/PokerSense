@@ -20,6 +20,8 @@
 
 四层：screen（虚拟桌面，副屏负坐标合法）/ window / client-area / ROI（normalized 0~1）。TableMap 用 normalized 存储 + `reference_size` 锚；`reference_aspect_ratio` 运行时派生，不持久化。
 
+Windows 的 WebView 宿主可能先设置进程级 DPI 模式。`MssBackend` 因此使用 Windows mixed-mode DPI：初始化时允许线程级 Per-Monitor V2 fallback，并在每次实际截屏的工作线程上重新确认或设置该上下文。这样 `ClientToScreen` 与 mss 都使用物理像素坐标，不依赖 WebView 的进程默认值。
+
 ## layout compatibility
 
 实际帧宽高比与 `reference_aspect_ratio` 偏差超过 `aspect_tolerance` → `TableMapMismatchError` fail fast，不使用错误 ROI。

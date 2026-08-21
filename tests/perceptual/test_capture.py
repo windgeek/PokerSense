@@ -153,7 +153,35 @@ class _FakeUser32Ctypes:
         self.GetAwarenessFromDpiAwarenessContext = None
 
 
-def _setup_dpi_mocks(monkeypatch, mb, access_denied, is_per_monitor):
+class _FakeDpiFunction:
+    def __init__(self, result):
+        self._result = result
+
+    def __call__(self, *args):
+        return self._result
+
+
+def test_thread_dpi_override_requires_verified_per_monitor_context(monkeypatch):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    fake = _FakeUser32Ctypes()
+    fake.SetThreadDpiAwarenessContext = _FakeDpiFunction(123)
+    monkeypatch.setattr(mb, "_HAS_WIN32", True)
+    monkeypatch.setattr(mb, "_user32", fake)
+    monkeypatch.setattr(mb, "_is_current_context_per_monitor", lambda: True)
+    assert mb._try_set_thread_dpi_awareness() is True
+
+    monkeypatch.setattr(mb, "_is_current_context_per_monitor", lambda: False)
+    assert mb._try_set_thread_dpi_awareness() is False
+
+
+def _setup_dpi_mocks(
+    monkeypatch,
+    mb,
+    access_denied,
+    is_per_monitor,
+    thread_can_override=False,
+):
     import ctypes
 
     monkeypatch.setattr(mb, "_HAS_WIN32", True)
@@ -170,6 +198,11 @@ def _setup_dpi_mocks(monkeypatch, mb, access_denied, is_per_monitor):
     monkeypatch.setattr(mb, "_user32", fake)
     monkeypatch.setattr(
         mb, "_is_current_context_per_monitor", lambda: is_per_monitor
+    )
+    monkeypatch.setattr(
+        mb,
+        "_try_set_thread_dpi_awareness",
+        lambda: thread_can_override,
     )
 
     # Patch shcore WinDLL to a sentinel whose SetProcessDpiAwareness returns
@@ -203,6 +236,23 @@ def test_dpi_access_denied_with_system_aware_rejected(monkeypatch):
     assert mb._try_set_dpi_awareness() == "none"
 
 
+@pytest.mark.skipif(
+    sys.platform != "win32",
+    reason="patches ctypes.WinDLL, which only exists on Windows",
+)
+def test_dpi_access_denied_uses_thread_override(monkeypatch):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    _setup_dpi_mocks(
+        monkeypatch,
+        mb,
+        access_denied=True,
+        is_per_monitor=False,
+        thread_can_override=True,
+    )
+    assert mb._try_set_dpi_awareness() == "thread_v2"
+
+
 def test_dpi_access_denied_then_backend_runtime_error(monkeypatch):
     import poker_engine.perceptual.capture.mss_backend as mb
 
@@ -212,6 +262,17 @@ def test_dpi_access_denied_then_backend_runtime_error(monkeypatch):
     monkeypatch.setattr(mb, "_try_set_dpi_awareness", lambda: "none")
     with pytest.raises(RuntimeError):
         mb.MssBackend()
+
+
+def test_capture_establishes_dpi_on_the_actual_worker_thread(monkeypatch):
+    import poker_engine.perceptual.capture.mss_backend as mb
+
+    backend = object.__new__(mb.MssBackend)
+    monkeypatch.setattr(mb, "_is_current_context_per_monitor", lambda: False)
+    monkeypatch.setattr(mb, "_try_set_thread_dpi_awareness", lambda: False)
+
+    with pytest.raises(CaptureError, match="capture thread"):
+        backend.capture(CaptureTarget(window_id="table"))
 
 
 # --- IsIconic -> CaptureError (mocked) ---
