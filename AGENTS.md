@@ -29,8 +29,8 @@ changing desktop capture, recognition, packaging, or project documentation.
 
 ## Current state
 
-- Default branch: `main`, currently at `e827f62`.
-- Release being prepared: `v0.1.9`.
+- Default branch: `main`.
+- Current release: `v0.1.9` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.9), source commit `91de955`.
 - The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
   and displays preflop equity against a random range.
 - A different hero-card pair must be visible for two consecutive frames before
@@ -95,12 +95,14 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
-- **2026-08-21 — v0.1.9 release preparation:** fixed the Windows packaged
+- **2026-08-21 — v0.1.9:** fixed the Windows packaged
   app's missing `mss` dependency, wait for the local uvicorn server before
   opening the webview, and convert capture initialization/runtime failures to
   recoverable UI errors instead of closing the WebSocket. Added focused
-  regression tests and a Windows workflow dependency check. Full verification
-  and GitHub release packaging remain pending.
+  regression tests and a Windows workflow dependency check. Full tests and
+  flake8 passed locally and on macOS/Windows CI; the local macOS bundle passed
+  version, resource, signature-structure, and HTTP startup checks; both GitHub
+  installers built and were published. Source commit `91de955`.
 - **2026-08-21 — Windows v0.1.8 startup diagnosis:** the release workflow
   installs `.[desktop,packaging]` but omits the `perceptual` extra that provides
   `mss`.  The frozen Windows app can therefore serve its UI, but opening `/ws`
