@@ -104,6 +104,12 @@ structure; do not represent a local build as a clean-user installation test.
   draw.io SVG passed XML validation, draw.io reopen/export, and visual review;
   the full test suite and flake8 passed. Documentation only; no runtime or
   release artifact changed.
+- **2026-08-21 — external project research:** added
+  `docs/research-dickreuter-poker.md` after reviewing `dickreuter/Poker`.
+  The research records reusable ideas for table calibration, structured
+  decision inputs, strategy parameterization, and hand analysis, while
+  separating them from the repository's auto-play behavior, known Monte Carlo
+  test limitations, fixed-layout assumptions, and GPL-3.0 integration duties.
 - **2026-08-21 — v0.1.11:** a real Windows retest showed
   Chrome exposes the table as `WePoker-H5 - Google Chrome`, while the Windows
   backend still required an exact `WePoker-H5` title. Windows matching now
