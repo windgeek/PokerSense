@@ -43,19 +43,28 @@ The published v0.1.11 installers still use the legacy H5 path and do not contain
 this Android/ADB change. The Android path is currently on `main`; a new installer
 will be published after real LDPlayer integration and Windows packaging checks.
 
-## Use with LDPlayer
+## Run with LDPlayer (default)
+
+PokerSense no longer needs an H5 page or a Chrome window. Its default live
+input is the Android framebuffer from LDPlayer over ADB. Before launching, you
+need a Windows LDPlayer instance, WePoker Android, and one authorized ADB
+device. The currently calibrated profile is **1440×2560 portrait**.
 
 1. Run WePoker Android in a 1440×2560 portrait LDPlayer instance and enable ADB.
 2. Run `adb devices` and note the target serial, such as `emulator-5556`.
 3. If `adb.exe` is not on PATH, point `POKERSENSE_ADB_PATH` to LDPlayer's copy.
-4. Start with `make run-desktop ARGS="--device-serial emulator-5556"`.
+4. With one authorized instance, start normally with `make run-desktop`.
+   With more than one instance, select it explicitly with
+   `make run-desktop ARGS="--device-serial emulator-5556"`.
 
 Only the hero-card area has been measured for this platform. The displayed
 equity therefore reflects the recognized hero hand before the flop, against a
 random opponent range. It is not a full table-state analysis.
 
-With exactly one authorized ADB device, the serial may be omitted. With multiple
-instances PokerSense fails closed and lists the serials instead of choosing one.
+With exactly one authorized ADB device, PokerSense uses `auto` and starts the
+default Android path. With multiple instances it fails closed and lists the
+serials instead of choosing one. `--device-serial` (or
+`POKERSENSE_ADB_SERIAL`) is then required.
 
 ```bash
 adb devices

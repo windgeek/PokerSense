@@ -116,6 +116,13 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-23 — Android-first README:** clarified the English and Simplified
+  Chinese user guides so LDPlayer Android/ADB is the only default live input:
+  no H5 or Chrome window is required, the 1440×2560 portrait prerequisite is
+  explicit, and single-device `auto` versus multi-device serial selection is
+  documented. This remains a `main` capability until the next Windows
+  installer is packaged and released.
+
 - **2026-08-23 — application icon:** added a project-owned PokerSense icon
   (PNG source plus macOS `.icns` and Windows `.ico`) and made the PyInstaller
   spec select the native format for each platform. The local macOS bundle

@@ -33,17 +33,24 @@ PokerSense 不是自动打牌机器人：不会点击、输入、下注或控制
 GitHub 上的 v0.1.11 安装包仍是旧 H5 路径，不包含本页所述 Android/ADB 改造。Android 路径当前位于
 `main`，完成真实雷电联调和 Windows 打包验收后再发布新安装包，避免把开发状态误写成已发布能力。
 
-## 使用雷电模拟器
+## 使用雷电模拟器（默认方式）
+
+PokerSense 不再需要 H5 页面或 Chrome 窗口。默认实时输入是通过 ADB 直接读取雷电中的
+Android framebuffer。启动前需要准备 Windows 雷电实例、WePoker Android 和一个已授权的 ADB
+设备；当前已标定的配置为 **1440×2560 竖屏**。
 
 1. 在雷电中以 1440×2560 竖屏运行 WePoker Android，并开启 ADB。
 2. 运行 `adb devices`，记下目标实例序列号，例如 `emulator-5556`。
 3. 如果 `adb.exe` 不在 PATH，设置 `POKERSENSE_ADB_PATH` 为雷电目录中的 `adb.exe`。
-4. 启动：`make run-desktop ARGS="--device-serial emulator-5556"`。
+4. 只有一个已授权实例时，直接运行 `make run-desktop`；有多个实例时，使用
+   `make run-desktop ARGS="--device-serial emulator-5556"` 显式选择。
 
 目前只有底牌区域完成了平台标定。因此，界面显示的是识别到底牌后的翻牌前胜率，对手范围为随机范围；
 它不是完整牌局状态分析。
 
-只有一个已授权 ADB 设备时可省略序列号；存在多个雷电实例时 PokerSense 会拒绝猜测，并列出可选序列号。
+只有一个已授权 ADB 设备时，PokerSense 会以 `auto` 启动默认 Android 链路；存在多个雷电实例时
+会拒绝猜测并列出可选序列号，此时必须传入 `--device-serial`（或设置
+`POKERSENSE_ADB_SERIAL`）。
 
 ```bash
 adb devices
