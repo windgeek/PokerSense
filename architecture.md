@@ -10,6 +10,14 @@
 `ConfidenceGate`、纯 `StateEngine`、`HandMemory`、`RequestContext` 和 Fast/Slow
 思想继续保留；未实现的目录草图、固定 Python 3.11、LLM 参与决策等旧规划不再作为目标。
 
+产品范围、Multi-Scenario / Multi-Player 能力矩阵、输入输出要求和分阶段验收标准见
+[`docs/product-requirements.md`](docs/product-requirements.md)。Heads-Up 是第一阶段交付范围，
+不是公共领域模型和 Strategy Router 的最终边界。
+
+识别完成后的功能拆分、Strategy Router 输入输出矩阵和验收规则见
+[`docs/strategy-requirements-matrix.md`](docs/strategy-requirements-matrix.md)；自动化回归套件、测试数据和发布门槛见
+[`docs/strategy-regression-test-matrix.md`](docs/strategy-regression-test-matrix.md)。
+
 修订记录：
 
 | 版本 | 变更 |
@@ -37,19 +45,43 @@ subject to canonical state is trustworthy
 3. **策略最优**：以 GTO/blueprint 为基准，根据可信对手证据做受约束的剥削调整。
 4. **系统最优**：Fast Path 先给可靠结果，Slow Path 异步提高精度，旧结果永不污染新状态。
 
+目标层的 `StrategyOrchestrator` 已实现这一条合同：Fast Advice 同步返回；只有 capability
+匹配且 Fast 结果不是 exact 时才提交 Slow Future；collect 时重新验证
+`hand_id + state_version + request_id + deadline + provider version`，并且只接受质量等级更高的结果。
+
 ## 2. 当前事实与目标差距
 
 | 能力 | 当前 `main` | v0.3 目标 |
 |---|---|---|
 | Capture | macOS/Windows 后端；macOS 当前 Space 限制 | 稳定窗口身份、真实 capture 延迟测量 |
 | Hero cards | WePoker 真实样本已标定 | 持续扩充独立真实样本 |
-| Board / pot / street | 未做真实平台标定，生产中为 `UNKNOWN` | 独立 ROI、校准和多帧确认 |
-| State | 权威更新 hero/board/street/pot | actor、stack、action、to-call、合法动作、hand boundary |
-| Equity | 枚举、Monte Carlo、range equity、pot odds | 后验范围、多精度预算、置信区间和缓存 |
-| Strategy | 只有数据契约 | preflop DB、预解缓存、轻量策略、异步 resolver |
-| Opponent | 只有 `OpponentProfile` 契约 | 组合范围贝叶斯更新和小样本收缩 |
-| Output | state + win/tie + confidence | 动作频率、尺度、动作 EV、EV gap、证据、置信度 |
+| Board / pot / street | 未做真实平台标定，生产中为 `UNKNOWN`；通用逐字段/逐 slot 多帧确认已接入 | 独立 ROI、真实校准和 capture replay |
+| State | 权威更新 hero/board/street/pot；目标层已有确定性 legal-action、side-pot、State→DecisionContext、hand-boundary、显式 slot→seat→candidate-state 映射，以及 hash-pinned raw-frame Replay runner/quality report | 采集并校准 WePoker actor/stack/action/dealer ROI 与 slot contract，用授权真实原始帧执行 Replay；未校准前 live 保持 UNKNOWN/ABSTAIN |
+| Equity | 枚举、Monte Carlo、range equity、pot odds；目标层已有加权多人 pot-share、seeded MC/CI、canonical TTL/LRU cache 和 operation-budget 路由 | 大范围直接采样、真实 deadline 吞吐校准和持久化 cache |
+| Strategy | 多人 DecisionContext、Provider capability、Router、Advice、状态派生和 FakeProvider 回归闭环；未发布目标层新增可选 HU preflop Blueprint Adapter，以及固定来源/hash、仅覆盖明确 6/9 人 unopened 牌表的低置信度 Heuristic RFI Provider | 扩大 HU Golden 节点覆盖；接入人数精确匹配的 3–9 人 preflop DB、预解缓存、轻量策略、异步 resolver；不得把 6/9 heuristic 宣称为多人 GTO |
+| Opponent | `OpponentProfile` 契约；目标层已有受限 6/9 人 RFI 资产→concrete-combo 初始范围、blocker、贝叶斯更新、小样本收缩和多人联合组合枚举；不适用时返回 UNKNOWN 而非 random range | 扩展到逐一验证的 3–9 人位置/行动/stack 先验资产、实时事件接入和受约束模型 |
+| Output | 生产 live 已接入 `LiveStrategySession → StrategyOrchestrator → DesktopFrame`，支持 Advice/UI/WebSocket 的频率、尺度、EV、来源、证据和过期防闪回；当前真实输入不足时只输出 ABSTAIN | 完成 actor/stack/action-line 等真实标定并接入匹配的可发布策略资产，使声明场景可 READY |
 | Learning | 无 | 实际动作 → EV loss → 漏点 → 训练题 |
+
+### 2.1 并行开发的集成边界
+
+识别和 UI 可以与策略侧并行开发，但必须在冻结合同处汇合：识别侧止于带逐字段质量和
+证据的 `RawObservation`，策略侧负责从 observation 形成 canonical state、事件、Context 和
+Advice，UI 侧只渲染原子的 `DesktopFrame`，不推断牌局事实或策略。
+
+```text
+伙伴：Capture / Vision
+  → RawObservation + PlatformSeatMapping evidence
+本分支：Temporal / State / Context / Strategy
+  → DesktopFrame { analysis, advice }
+伙伴：Live Coach UI
+  → 只渲染，不自行生成动作
+```
+
+当前接口和责任 Gap 的权威表见
+[`docs/product-requirements.md` 2.3](docs/product-requirements.md#23-策略识别与-ui-的协作边界)。
+真实联调前必须冻结 `platform_id + layout_id + mapping version`、Replay hash、Provider/version
+和 UI build；否则不同团队各自通过测试仍不能证明同一条产品链路成立。
 
 ## 3. 目标架构图
 
@@ -86,7 +118,7 @@ Previous PokerState + StableObservation + StateContext
 
 State/Event Engine v2 负责：
 
-- 新手牌和街道边界。
+- 新手牌和街道边界；Hero 换牌或多信号 reset 可确认切手，冲突/弱证据保持不切手，dealer/stack 信号只接受显式 slot→seat 映射。
 - actor、stack、street committed、hand committed、pot、current bet、to-call。
 - fold/check/call/bet/raise/all-in 的事件语义。
 - 最小加注、合法动作和筹码守恒。
@@ -160,6 +192,13 @@ RequestContext(hand_id, state_version, request_id)
 
 Solver 使用独立进程和硬预算，不能阻塞 Fast Advice。第一版从 river subgame 开始，
 flop/turn 未按时收敛时只用于局后分析。
+
+多人翻牌前的本地研究路径可选用 `GTOpenPreflopProvider`。它不复制上游 Rust 代码，而是访问
+`127.0.0.1` 上单独运行的 GTOpen JSON API；把 2–9 人位置、等起始筹码、blind/ante/rake 和
+权威行动事件构造成 Preflop Lab tree，等待 model gap 达标后，按 Hero 具体 169-class 索引读取
+逐尺度策略。由于上游每个服务只有一个可变 preflop session，Provider 必须串行；超时、行动
+路径不精确、返回非法动作或不等起始筹码时拒答。多人 terminal value 使用近似模型，因此输出
+固定为 `HEURISTIC`，不能作为发布版完整多人 GTO 声明。
 
 ## 5. 范围、Equity 与决策算法
 
@@ -256,7 +295,8 @@ class Advice:
     hand_id: str
     state_version: int
     request_id: str
-    action_probabilities: Mapping[ActionType, float]
+    action_probabilities: Mapping[ActionType, Decimal]
+    action_options: tuple[ActionOption, ...]  # 每个动作/尺度的独立频率
     recommended_sizes: tuple[BetSize, ...]
     action_ev: Mapping[ActionType, ChipDelta]
     ev_gap: ChipDelta
@@ -282,8 +322,33 @@ seed 由 `session_id + hand_id + state_version` 派生。人类玩家是唯一�
 | L3 | Lightweight policy/value model | 10–80ms | cache miss 的近似策略 |
 | L4 | Local resolver / CFR backend | 0.5–5s+ | 小 EV gap、异常尺度、局后精算 |
 
+Adaptive Equity 的默认预算不是理论常量。当前 `adaptive-equity-v2-m1-pro` 使用目标机
+MacBookPro18,3 的版本化实测：exact 3 outcomes/ms、MC 2 trials/ms，约为最慢 p95 吞吐的
+50%。更换硬件、Python 或 evaluator 实现时必须重新运行 benchmark、生成新 calibration 版本，
+并更换 engine version，防止旧 cache 与新性能假设混用。
+
+Fast Path 使用 `TieredStrategyRouter` 固定查询 L0/L1 对应的 Cache、Preflop DB、Presolved 和
+Model 层。每层内部仍由 capability-safe `StrategyRouter` 选出最佳 candidate；一旦某层命中，
+更低层不得执行。Cache 是 lookup-only source，DB/Presolved/Model 可使用 write-through wrapper
+回填；全部层 miss/rejected/not-applicable 时保留完整 lookup 轨迹并返回 NO_STRATEGY，不构造
+伪 candidate。具体多人或 postflop 资产是否可用仍由各 Provider capability 和 Golden 证据决定。
+
+多人 preflop 与 presolved postflop 使用同一个只读 `JsonStrategyAssetProvider` 接入合同。资产在
+Provider 注册前必须通过文件 SHA-256、schema、Provider/version/source/license 元数据、
+capability ID 和完整 capability digest 校验；运行时仅以 canonical context digest 查节点。
+缺节点返回 NOT_FOUND，节点结构或概率错误返回 REJECTED，未披露差异维度的 interpolated 节点
+无效。Synthetic asset 只验证 Adapter，不能作为真实多人 GTO 或发布 Golden 证据。
+
 缓存键至少包含游戏类型、人数、位置、有效筹码、盲注/ante/rake、行动序列、board canonical
-form、允许尺度和策略版本。节点近似匹配必须输出 `state_match_score`，不能假装精确命中。
+form、允许尺度和策略版本。位置和行动线必须精确匹配；stack、pot 与最近一次主动下注尺度只有在
+Provider 明确声明 bucket 和最大距离时才允许插值。节点近似匹配必须同时输出保守的
+`state_match_score` 和结构化 `match_dimensions[]`，并在缓存、融合、Advice 与 UI 中保持，不能
+假装精确命中。
+
+Decision Fusion 在输出前统一生成 freshness、confidence、context、strategy source 和 legal
+actions 五个内置硬门，并接受 range、equity/numerical 或后续模块提供的具名外部门。门结果使用
+PASS/FAIL/SKIPPED 合同写入 Advice；任一 FAIL 都会清空动作并转为 ABSTAIN，过期请求则优先
+转为 STALE。外部模块不能覆盖内置门名，也不能只返回失败而不提供稳定 reason code。
 
 ## 8. 训练闭环
 

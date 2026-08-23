@@ -72,9 +72,15 @@ from poker_engine.perceptual.vision.engine import VisionEngine
 from poker_engine.perceptual.vision.errors import TableMapError
 from poker_engine.perceptual.vision.street_detector import TemplateStreetDetector
 from poker_engine.perceptual.vision.table_map import TableMap
-from poker_engine.realtime.analysis import RealtimeAnalysis
 from poker_engine.realtime.pipeline import RealtimePipeline
 from poker_engine.state_engine.engine import StateEngine
+from poker_engine.strategy.contracts import GameConfig, GameType
+from poker_engine.strategy.orchestration import StrategyOrchestrator
+from poker_engine.strategy.router import StrategyRouter
+
+from .errors import LiveCaptureError
+from .serialize import DesktopFrame
+from .strategy_live import LiveStrategySession
 
 
 def _resource_root() -> Path:
@@ -89,10 +95,6 @@ _REPO_ROOT = _resource_root()
 DEFAULT_PLATFORM = "wepoker"
 DEFAULT_LAYOUT = "h5_2max"
 DEFAULT_WINDOW_TITLE = "WePoker-H5"
-
-
-class LiveCaptureError(RuntimeError):
-    """A live capture problem the user can act on (window, permission, layout)."""
 
 
 def build_capture_backend() -> CaptureService:
@@ -353,10 +355,23 @@ def build_pipeline(
         vision,
         table_map,
         orchestrator,
-        # A valid hero hand is immutable within a deal. Requiring two
-        # identical frames prevents one half-rendered / miscaptured frame
-        # from becoming the canonical hand shown to the player.
+        # Require consecutive values before any future calibrated field may
+        # enter canonical state. This suppresses deal/action animations, not
+        # only transient Hero-card reads.
         hero_confirmation_frames=2,
+        confirmation_frames={
+            "hero_cards": 2,
+            "board_cards": 2,
+            "pot": 2,
+            "stacks": 2,
+            "bet_size": 2,
+            "action": 2,
+            "street": 2,
+            "dealer_pos": 2,
+            "actor": 2,
+            "slot_stacks": 2,
+            "slot_actions": 2,
+        },
         new_hand_state_factory=next_hand_state,
     )
 
@@ -365,7 +380,7 @@ async def live_analysis_stream(
     window_title: str = DEFAULT_WINDOW_TITLE,
     window_index: int | None = None,
     interval_seconds: float = 1.0,
-) -> AsyncIterator[RealtimeAnalysis]:
+) -> AsyncIterator[DesktopFrame]:
     """Yield a fresh analysis for as long as the window can be captured.
 
     Capture and recognition are CPU-bound and run off the event loop, so the
@@ -381,6 +396,22 @@ async def live_analysis_stream(
         raise LiveCaptureError(
             f"capture engine initialization failed: {exc}"
         ) from exc
+    # The live table currently has no calibrated actor/stack/action-line
+    # inputs and no bundled 2-player strategy asset.  Wire the production
+    # StrategyOrchestrator now, but keep its Provider set empty so the output
+    # is an auditable ABSTAIN until those prerequisites are genuinely present.
+    strategy_session = LiveStrategySession(
+        StrategyOrchestrator(StrategyRouter()),
+        GameConfig(
+            variant="NLHE",
+            game_type=GameType.CASH,
+            max_seats=2,
+            dealt_player_count=2,
+            small_blind=ChipAmount("1"),
+            big_blind=ChipAmount("2"),
+            minimum_chip=ChipAmount("1"),
+        ),
+    )
     while True:
         try:
             step = await asyncio.to_thread(pipeline.step)
@@ -389,7 +420,7 @@ async def live_analysis_stream(
         except Exception as exc:
             raise LiveCaptureError(f"capture engine failed: {exc}") from exc
         if step is not None:
-            yield step.analysis
+            yield strategy_session.frame(step.analysis, pipeline.current_state())
         await asyncio.sleep(interval_seconds)
 
 

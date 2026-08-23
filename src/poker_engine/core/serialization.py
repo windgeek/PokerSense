@@ -459,6 +459,8 @@ def _ser_request(o: RequestContext) -> dict:
         "state_version": o.state_version,
         "request_id": o.request_id,
         "requested_at": _dt(o.requested_at),
+        "expires_at": _dt(o.expires_at) if o.expires_at is not None else None,
+        "deadline_ms": o.deadline_ms,
     }
 
 
@@ -469,6 +471,11 @@ def _deser_request(d: dict) -> RequestContext:
         state_version=d["state_version"],
         request_id=d["request_id"],
         requested_at=_dt_back(d["requested_at"]),
+        expires_at=(
+            _dt_back(d["expires_at"])
+            if d.get("expires_at") is not None else None
+        ),
+        deadline_ms=d.get("deadline_ms"),
     )
 
 

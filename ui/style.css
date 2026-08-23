@@ -284,6 +284,38 @@ html, body {
 
 /* ---------- confidence ---------- */
 
+.advice-panel {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+}
+
+.advice-panel[hidden] { display: none; }
+.advice-panel[data-status="READY"] { border-color: rgba(76, 191, 125, 0.45); }
+.advice-panel[data-status="ABSTAIN"],
+.advice-panel[data-status="STALE"] { border-color: rgba(224, 98, 92, 0.4); }
+
+.advice-header { display: flex; justify-content: space-between; align-items: end; }
+.advice-kicker { color: var(--text-faint); font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+.advice-status { margin-top: 3px; font-size: 18px; font-weight: 800; }
+.advice-confidence { color: var(--text-dim); font-size: 11px; }
+.advice-badges { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.advice-badge { padding: 3px 6px; border: 1px solid var(--border); border-radius: 999px; color: var(--text-dim); font-size: 9px; overflow-wrap: anywhere; }
+.advice-badge.source-manual { border-color: rgba(224, 176, 76, 0.55); color: var(--warn); background: var(--warn-soft); }
+.advice-badge.source-inferred { border-style: dashed; }
+.advice-actions { display: grid; gap: 7px; margin-top: 12px; }
+.advice-action { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; padding: 8px 10px; border-radius: 8px; background: var(--panel-raised); font-size: 12px; }
+.advice-action.preferred { outline: 1px solid var(--accent); background: var(--accent-soft); }
+.advice-action small { grid-column: 1 / -1; color: var(--text-dim); }
+.advice-message { margin-top: 10px; color: var(--warn); font-size: 11px; overflow-wrap: anywhere; }
+.advice-meta { display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; margin: 10px 0 0; font-size: 10px; }
+.advice-meta dt { color: var(--text-faint); }
+.advice-meta dd { margin: 0; color: var(--text-dim); overflow-wrap: anywhere; }
+.advice-evidence { margin-top: 10px; color: var(--text-dim); font-size: 10px; }
+.advice-evidence summary { cursor: pointer; }
+#advice-evidence-content { margin-top: 8px; white-space: pre-wrap; overflow-wrap: anywhere; }
+
 .confidence-panel {
   display: flex;
   align-items: center;

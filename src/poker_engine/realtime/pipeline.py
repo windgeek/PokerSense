@@ -16,13 +16,16 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import TYPE_CHECKING, Any
 
-from poker_engine.core.observation import RawObservation, ValidationStatus
+from poker_engine.core.observation import RawObservation
 from poker_engine.core.state import PokerState
 from poker_engine.orchestrator import ApplicationOrchestrator
-from poker_engine.perceptual.capture.base import Frame
-from poker_engine.perceptual.vision.engine import VisionEngine
-from poker_engine.perceptual.vision.table_map import TableMap
+
+if TYPE_CHECKING:
+    from poker_engine.perceptual.vision.engine import VisionEngine
+    from poker_engine.perceptual.vision.table_map import TableMap
+    from .frame_source import FrameSource
 
 from .analysis import (
     ConfidenceSnapshot,
@@ -32,7 +35,13 @@ from .analysis import (
 )
 from .change_detector import ChangeReport, detect_change
 from .equity import EquityStrategy, MonteCarloRandomRangeEquity
-from .frame_source import FrameSource
+from .hand_boundary import (
+    HandBoundaryDetection,
+    HandBoundaryPolicy,
+    HandBoundaryStatus,
+    detect_hand_boundary,
+)
+from .temporal_consensus import TemporalConsensus
 
 
 @dataclass(frozen=True)
@@ -48,6 +57,7 @@ class PipelineStep:
     analysis: RealtimeAnalysis
     change: ChangeReport
     analysis_changed: bool
+    hand_boundary: HandBoundaryDetection
 
 
 class RealtimePipeline:
@@ -63,12 +73,16 @@ class RealtimePipeline:
         equity_trials: int = 2000,
         equity_seed: int = 0,
         hero_confirmation_frames: int = 1,
+        confirmation_frames: dict[str, int] | None = None,
+        hand_boundary_policy: HandBoundaryPolicy | None = None,
         new_hand_state_factory: Callable[[], PokerState] | None = None,
     ) -> None:
-        if not isinstance(vision, VisionEngine):
-            raise TypeError("vision must be a VisionEngine")
-        if not isinstance(table_map, TableMap):
-            raise TypeError("table_map must be a TableMap")
+        if not callable(getattr(frame_source, "next_frame", None)):
+            raise TypeError("frame_source must provide next_frame()")
+        if not callable(getattr(vision, "process", None)):
+            raise TypeError("vision must provide process()")
+        if table_map is None:
+            raise TypeError("table_map must not be None")
         if not isinstance(orchestrator, ApplicationOrchestrator):
             raise TypeError("orchestrator must be an ApplicationOrchestrator")
         self._frame_source = frame_source
@@ -86,13 +100,19 @@ class RealtimePipeline:
             raise TypeError("hero_confirmation_frames must be an int")
         if hero_confirmation_frames < 1:
             raise ValueError("hero_confirmation_frames must be >= 1")
-        self._hero_confirmation_frames = hero_confirmation_frames
+        thresholds = dict(confirmation_frames or {})
+        thresholds.setdefault("hero_cards", hero_confirmation_frames)
+        self._temporal_consensus = TemporalConsensus(thresholds)
+        if hand_boundary_policy is None:
+            hand_boundary_policy = HandBoundaryPolicy()
+        elif not isinstance(hand_boundary_policy, HandBoundaryPolicy):
+            raise TypeError(
+                "hand_boundary_policy must be a HandBoundaryPolicy or None"
+            )
+        self._hand_boundary_policy = hand_boundary_policy
         if new_hand_state_factory is not None and not callable(new_hand_state_factory):
             raise TypeError("new_hand_state_factory must be callable or None")
         self._new_hand_state_factory = new_hand_state_factory
-        self._pending_hero_cards = None
-        self._pending_hero_count = 0
-
         self._previous_obs: RawObservation | None = None
         self._current_analysis: RealtimeAnalysis | None = None
 
@@ -103,12 +123,17 @@ class RealtimePipeline:
             return None
 
         raw_obs = self._vision.process(frame, self._table_map)
-        obs = self._confirmed_hero_observation(raw_obs)
+        obs = self._temporal_consensus.apply(raw_obs).observation
+        boundary = detect_hand_boundary(
+            self._latest_state(), obs, self._hand_boundary_policy
+        )
 
-        if self._is_confirmed_new_hand(obs):
-            self._start_next_hand()
+        if boundary.status is HandBoundaryStatus.CONFIRMED:
+            self._start_next_hand(obs.timestamp)
             self._advance(obs, frame)
-            change = ChangeReport(changed=True, changed_fields=("hero_cards",))
+            change = ChangeReport(
+                changed=True, changed_fields=("hand_boundary",)
+            )
             self._previous_obs = obs
             assert self._current_analysis is not None
             return PipelineStep(
@@ -116,6 +141,7 @@ class RealtimePipeline:
                 analysis=self._current_analysis,
                 change=change,
                 analysis_changed=True,
+                hand_boundary=boundary,
             )
 
         if self._previous_obs is None:
@@ -130,6 +156,7 @@ class RealtimePipeline:
                 analysis=self._current_analysis,
                 change=change,
                 analysis_changed=True,
+                hand_boundary=boundary,
             )
 
         change = detect_change(self._previous_obs, obs)
@@ -152,45 +179,10 @@ class RealtimePipeline:
             analysis=fresh_analysis,
             change=change,
             analysis_changed=change.changed,
+            hand_boundary=boundary,
         )
 
-    def _confirmed_hero_observation(self, obs: RawObservation) -> RawObservation:
-        """Require consecutive identical hero reads before accepting a hand.
-
-        A single frame can be captured during a deal animation or while a
-        browser surface is changing.  It must never seed the immutable hero
-        cards in the state engine.  Until the configured number of matching
-        reads arrives, expose the field as UNKNOWN to both state and UI.
-        """
-        hero = obs.hero_cards
-        cards = hero.value
-        if (
-            hero.validation_status is ValidationStatus.VALID
-            and cards is not None
-            and len(cards) == 2
-        ):
-            if cards == self._pending_hero_cards:
-                self._pending_hero_count += 1
-            else:
-                self._pending_hero_cards = cards
-                self._pending_hero_count = 1
-            if self._pending_hero_count >= self._hero_confirmation_frames:
-                return obs
-        else:
-            self._pending_hero_cards = None
-            self._pending_hero_count = 0
-
-        return replace(
-            obs,
-            hero_cards=replace(
-                hero,
-                value=(),
-                confidence=0.0,
-                validation_status=ValidationStatus.UNKNOWN,
-            ),
-        )
-
-    def _advance(self, obs: RawObservation, frame: Frame) -> None:
+    def _advance(self, obs: RawObservation, frame: Any) -> None:
         self._orchestrator.process_observation(obs)
         state = self._latest_state()
         snapshot = RealtimeAnalysis(
@@ -201,30 +193,17 @@ class RealtimePipeline:
         )
         self._current_analysis = snapshot
 
-    def _is_confirmed_new_hand(self, obs: RawObservation) -> bool:
-        """Whether a confirmed pair marks a deal after the current one.
-
-        The StateEngine intentionally rejects a different two-card identity
-        within one hand.  Detect that boundary here, where live frames have
-        already passed temporal confirmation, and reset before the transition.
-        """
-        hero = obs.hero_cards
-        if (
-            hero.validation_status is not ValidationStatus.VALID
-            or hero.value is None
-            or len(hero.value) != 2
-        ):
-            return False
-        current_hero = self._latest_state().hero_cards
-        return len(current_hero) == 2 and tuple(hero.value) != current_hero
-
-    def _start_next_hand(self) -> None:
+    def _start_next_hand(self, boundary_time) -> None:
         if self._new_hand_state_factory is None:
             raise RuntimeError(
                 "confirmed new hand requires new_hand_state_factory"
             )
         initial_state = self._new_hand_state_factory()
-        self._orchestrator.start_next_hand(initial_state)
+        self._orchestrator.start_next_hand(
+            initial_state,
+            ended_at=boundary_time,
+            started_at=boundary_time,
+        )
 
     def _latest_state(self) -> PokerState:
         active = self._orchestrator._hand_memory.active_hand_id
@@ -241,6 +220,10 @@ class RealtimePipeline:
 
     def latest_analysis(self) -> RealtimeAnalysis | None:
         return self._current_analysis
+
+    def current_state(self) -> PokerState:
+        """Return the canonical state backing the latest live analysis."""
+        return self._latest_state()
 
 
 __all__ = ["RealtimePipeline", "PipelineStep"]

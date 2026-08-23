@@ -21,16 +21,30 @@ from poker_engine.core.value_objects import Card, ChipAmount
 class StateSnapshot:
     """Immutable, serialization-safe view of the current canonical state."""
 
+    hand_id: str
+    state_version: int
     street: Street
     hero_cards: tuple[Card, ...]
     board_cards: tuple[Card, ...]
     pot: ChipAmount
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.hand_id, str) or not self.hand_id:
+            raise ValueError("hand_id must be a non-empty str")
+        if not isinstance(self.state_version, int) or isinstance(
+            self.state_version, bool
+        ):
+            raise TypeError("state_version must be an int")
+        if self.state_version < 0:
+            raise ValueError("state_version must be >= 0")
 
     @classmethod
     def from_state(cls, state: PokerState) -> "StateSnapshot":
         if not isinstance(state, PokerState):
             raise TypeError("state must be a PokerState")
         return cls(
+            hand_id=state.hand_id,
+            state_version=state.state_version,
             street=state.street,
             hero_cards=tuple(state.hero_cards),
             board_cards=tuple(state.board_cards),

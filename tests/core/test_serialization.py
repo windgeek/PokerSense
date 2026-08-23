@@ -101,6 +101,15 @@ def test_roundtrip_request_context():
     assert rt.request_id == "req-abc"
 
 
+def test_request_context_v1_legacy_payload_defaults_new_deadline_fields():
+    payload = serialize(H.request_context())
+    payload.pop("expires_at")
+    payload.pop("deadline_ms")
+    rt = deserialize(H.RequestContext, payload)
+    assert rt.expires_at is None
+    assert rt.deadline_ms is None
+
+
 def test_roundtrip_validation_result():
     obj = H.validation_result()
     rt = roundtrip(obj)

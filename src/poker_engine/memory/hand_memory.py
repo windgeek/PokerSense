@@ -19,7 +19,7 @@ from datetime import datetime
 from typing import Protocol
 
 from poker_engine.core._freeze import _require_aware_dt, utc_now
-from poker_engine.core.events import StateEvent
+from poker_engine.core.events import EventType, StateEvent
 from poker_engine.core.hand import HandHistory, HandSummary
 from poker_engine.core.state import PokerState
 
@@ -71,11 +71,27 @@ class HandMemory(Protocol):
 
     def record_event(self, event: StateEvent) -> None: ...
 
+    def record_transition(
+        self,
+        state: PokerState,
+        events: tuple[StateEvent, ...],
+    ) -> None: ...
+
     def complete_hand(
         self,
         hand_id: str,
         summary: HandSummary,
         ended_at: datetime | None = None,
+    ) -> HandHistory: ...
+
+    def replace_active_hand(
+        self,
+        initial_state: PokerState,
+        summary: HandSummary,
+        boundary_event: StateEvent,
+        *,
+        ended_at: datetime,
+        started_at: datetime,
     ) -> HandHistory: ...
 
     def hand_exists(self, hand_id: str) -> bool: ...
@@ -199,6 +215,48 @@ class InMemoryHandMemory:
             return
         record.events.append(event)
 
+    def record_transition(
+        self,
+        state: PokerState,
+        events: tuple[StateEvent, ...],
+    ) -> None:
+        """Atomically append one canonical state and all of its events.
+
+        Every validation happens before either list is changed.  This prevents
+        a rejected event from leaving the state stream one version ahead of
+        the event stream.
+        """
+        if not isinstance(state, PokerState):
+            raise TypeError("state must be a PokerState")
+        values = tuple(events)
+        if not all(isinstance(event, StateEvent) for event in values):
+            raise TypeError("events must contain StateEvent values")
+        record = self._require_hand(state.hand_id)
+        self._require_active(record)
+        latest = record.latest_state
+        existing = record.state_by_version(state.state_version)
+        append_state = True
+        if latest is not None and state.state_version <= latest.state_version:
+            if existing != state:
+                raise HandConflictError(
+                    f"state_version must be strictly increasing "
+                    f"(got {state.state_version}, latest {latest.state_version})"
+                )
+            append_state = False
+        for event in values:
+            if event.hand_id != state.hand_id:
+                raise HandConflictError("event.hand_id does not match state.hand_id")
+            if event.state_version != state.state_version:
+                raise HandConflictError(
+                    "transition event must reference transition state_version"
+                )
+        # Mutation starts only after every state/event invariant has passed.
+        if append_state:
+            record.states.append(state)
+        for event in values:
+            if event not in record.events:
+                record.events.append(event)
+
     def complete_hand(
         self,
         hand_id: str,
@@ -230,6 +288,75 @@ class InMemoryHandMemory:
         record.completed = history
         if self._active_hand_id == hand_id:
             self._active_hand_id = None
+        return history
+
+    def replace_active_hand(
+        self,
+        initial_state: PokerState,
+        summary: HandSummary,
+        boundary_event: StateEvent,
+        *,
+        ended_at: datetime,
+        started_at: datetime,
+    ) -> HandHistory:
+        """Atomically complete the active hand and create its successor."""
+        if not isinstance(initial_state, PokerState):
+            raise TypeError("initial_state must be a PokerState")
+        if not isinstance(summary, HandSummary):
+            raise TypeError("summary must be a HandSummary")
+        if not isinstance(boundary_event, StateEvent):
+            raise TypeError("boundary_event must be a StateEvent")
+        for name, value in (("ended_at", ended_at), ("started_at", started_at)):
+            if not isinstance(value, datetime):
+                raise TypeError(f"{name} must be a datetime")
+            _require_aware_dt(value)
+        active_id = self._active_hand_id
+        if active_id is None:
+            raise HandLifecycleError("no active hand to replace")
+        record = self._require_hand(active_id)
+        self._require_active(record)
+        latest = record.latest_state
+        if latest is None:
+            raise HandLifecycleError("cannot replace a hand with no state")
+        if initial_state.hand_id == active_id:
+            raise HandConflictError("successor hand_id must differ from active hand")
+        if initial_state.hand_id in self._hands:
+            raise HandConflictError(
+                f"successor hand {initial_state.hand_id!r} already exists"
+            )
+        if boundary_event.hand_id != active_id:
+            raise HandConflictError("boundary_event must reference active hand")
+        if boundary_event.event_type is not EventType.HAND_END:
+            raise HandConflictError("boundary_event must be a HAND_END event")
+        if boundary_event.state_version != latest.state_version:
+            raise HandConflictError("boundary_event must reference latest state")
+        if ended_at < record.started_at:
+            raise HandLifecycleError("ended_at must be >= active hand started_at")
+        if started_at < ended_at:
+            raise HandLifecycleError("successor started_at must be >= ended_at")
+        completed_events = tuple(record.events) + (
+            () if boundary_event in record.events else (boundary_event,)
+        )
+        history = HandHistory(
+            hand_id=record.hand_id,
+            players=latest.players,
+            events=completed_events,
+            summary=summary,
+            start_time=record.started_at,
+            end_time=ended_at,
+        )
+        successor = _HandRecord(
+            hand_id=initial_state.hand_id,
+            started_at=started_at,
+            states=[initial_state],
+        )
+        # Commit the fully validated replacement without calling fallible
+        # public mutators between lifecycle states.
+        if boundary_event not in record.events:
+            record.events.append(boundary_event)
+        record.completed = history
+        self._hands[initial_state.hand_id] = successor
+        self._active_hand_id = initial_state.hand_id
         return history
 
     # ------------------------------------------------------------------- read

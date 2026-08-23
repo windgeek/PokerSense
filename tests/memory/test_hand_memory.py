@@ -246,6 +246,51 @@ def test_record_event_completed_hand_rejected():
         m.record_event(_event("h1", 0))
 
 
+# ---------- C2. atomic transition ----------
+
+def test_record_transition_commits_state_and_events_together():
+    m, s0 = _started()
+    s1 = _state("h1", 1)
+    events = (
+        _event("h1", 1, EventType.DEAL),
+        _event("h1", 1, EventType.RAISE),
+    )
+
+    m.record_transition(s1, events)
+    m.record_transition(s1, events)
+
+    assert m.states("h1") == (s0, s1)
+    assert m.events("h1") == events
+
+
+def test_record_transition_invalid_event_leaves_memory_unchanged():
+    m, s0 = _started()
+    before_states = m.states("h1")
+    before_events = m.events("h1")
+
+    with pytest.raises(HandConflictError):
+        m.record_transition(
+            _state("h1", 1),
+            (_event("another-hand", 1, EventType.RAISE),),
+        )
+
+    assert m.states("h1") == before_states == (s0,)
+    assert m.events("h1") == before_events == ()
+
+
+def test_record_transition_wrong_event_version_leaves_memory_unchanged():
+    m, s0 = _started()
+
+    with pytest.raises(HandConflictError):
+        m.record_transition(
+            _state("h1", 1),
+            (_event("h1", 0, EventType.RAISE),),
+        )
+
+    assert m.states("h1") == (s0,)
+    assert m.events("h1") == ()
+
+
 # ---------- D. read API ----------
 
 def test_read_api_returns_tuples_not_internal_lists():
@@ -340,6 +385,88 @@ def test_complete_hand_players_from_latest_state():
     m.record_state(_state("h1", 1, players=(_player(0, hero=True),)))
     h = m.complete_hand("h1", _summary(), ended_at=_aw(minute=5))
     assert len(h.players) == 1
+
+
+# ---------- E2. atomic active-hand replacement ----------
+
+def test_replace_active_hand_commits_boundary_and_successor_together():
+    m, s0 = _started()
+    boundary = _event("h1", 0, EventType.HAND_END)
+
+    history = m.replace_active_hand(
+        _state("h2", 0),
+        _summary(),
+        boundary,
+        ended_at=_aw(minute=5),
+        started_at=_aw(minute=5),
+    )
+
+    assert history.events == (boundary,)
+    assert m.get_hand_history("h1") == history
+    assert m.active_hand_id == "h2"
+    assert m.states("h1") == (s0,)
+    assert m.states("h2") == (_state("h2", 0),)
+
+
+def test_replace_active_hand_invalid_boundary_is_fully_rolled_back():
+    m, s0 = _started()
+
+    with pytest.raises(HandConflictError):
+        m.replace_active_hand(
+            _state("h2", 0),
+            _summary(),
+            _event("wrong", 0, EventType.HAND_END),
+            ended_at=_aw(minute=5),
+            started_at=_aw(minute=5),
+        )
+
+    assert m.active_hand_id == "h1"
+    assert m.is_active("h1")
+    assert m.get_hand_history("h1") is None
+    assert m.states("h1") == (s0,)
+    assert m.events("h1") == ()
+    assert not m.hand_exists("h2")
+
+
+def test_replace_active_hand_non_boundary_event_is_fully_rolled_back():
+    m, s0 = _started()
+
+    with pytest.raises(HandConflictError):
+        m.replace_active_hand(
+            _state("h2", 0),
+            _summary(),
+            _event("h1", 0, EventType.RAISE),
+            ended_at=_aw(minute=5),
+            started_at=_aw(minute=5),
+        )
+
+    assert m.active_hand_id == "h1"
+    assert m.states("h1") == (s0,)
+    assert m.events("h1") == ()
+    assert not m.hand_exists("h2")
+
+
+def test_replace_active_hand_existing_successor_is_fully_rolled_back():
+    m = InMemoryHandMemory()
+    m.start_hand("h2", _state("h2", 0), started_at=_aw())
+    m.complete_hand("h2", _summary(), ended_at=_aw(minute=1))
+    s1 = _state("h1", 0)
+    m.start_hand("h1", s1, started_at=_aw(minute=2))
+
+    with pytest.raises(HandConflictError):
+        m.replace_active_hand(
+            _state("h2", 0),
+            _summary(),
+            _event("h1", 0, EventType.HAND_END),
+            ended_at=_aw(minute=5),
+            started_at=_aw(minute=5),
+        )
+
+    assert m.active_hand_id == "h1"
+    assert m.is_active("h1")
+    assert m.get_hand_history("h1") is None
+    assert m.states("h1") == (s1,)
+    assert m.events("h1") == ()
 
 
 # ---------- F. multi-hand isolation ----------

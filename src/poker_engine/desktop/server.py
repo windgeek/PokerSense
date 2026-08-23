@@ -26,8 +26,8 @@ from starlette.responses import Response
 
 from poker_engine.realtime.analysis import RealtimeAnalysis
 
-from .live import DEFAULT_WINDOW_TITLE, LiveCaptureError, live_analysis_stream
-from .serialize import analysis_to_dict
+from .errors import LiveCaptureError
+from .serialize import DesktopFrame, desktop_frame_to_dict
 from .settings import load_settings, save_language
 
 
@@ -45,8 +45,10 @@ def _resolve_ui_dir() -> Path:
 
 
 _UI_DIR = _resolve_ui_dir()
+DEFAULT_WINDOW_TITLE = "WePoker-H5"
 
-AnalysisStreamFactory = Callable[[], AsyncIterator[RealtimeAnalysis]]
+AnalysisFrame = RealtimeAnalysis | DesktopFrame
+AnalysisStreamFactory = Callable[[], AsyncIterator[AnalysisFrame]]
 
 
 class _SettingsPayload(BaseModel):
@@ -71,7 +73,9 @@ class _NoCacheStaticFiles(StaticFiles):
 _RETRY_SECONDS = 3.0
 
 
-def _default_stream() -> AsyncIterator[RealtimeAnalysis]:
+def _default_stream() -> AsyncIterator[AnalysisFrame]:
+    from .live import DEFAULT_WINDOW_TITLE, live_analysis_stream
+
     return live_analysis_stream(DEFAULT_WINDOW_TITLE)
 
 
@@ -95,8 +99,8 @@ def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastA
         try:
             while True:
                 try:
-                    async for analysis in stream_factory():
-                        await websocket.send_json(analysis_to_dict(analysis))
+                    async for frame in stream_factory():
+                        await websocket.send_json(desktop_frame_to_dict(frame))
                 except LiveCaptureError as exc:
                     await websocket.send_json({"error": str(exc)})
                     await asyncio.sleep(_RETRY_SECONDS)
@@ -119,7 +123,9 @@ def run(
     window_title: str = DEFAULT_WINDOW_TITLE,
     window_index: int | None = None,
 ) -> None:
-    def stream() -> AsyncIterator[RealtimeAnalysis]:
+    from .live import live_analysis_stream
+
+    def stream() -> AsyncIterator[DesktopFrame]:
         return live_analysis_stream(window_title, window_index)
 
     import uvicorn
@@ -127,7 +133,7 @@ def run(
     uvicorn.run(create_app(stream), host=host, port=port, log_level="warning")
 
 
-__all__ = ["create_app", "run"]
+__all__ = ["DEFAULT_WINDOW_TITLE", "create_app", "run"]
 
 
 if __name__ == "__main__":

@@ -13,6 +13,11 @@ const TRANSLATIONS = {
     frame: "frame", noData: "no data", live: "PokerSense · live", connecting: "PokerSense · connecting",
     cannotReach: "PokerSense · cannot reach engine", waiting: "PokerSense · waiting for table",
     connectionError: "PokerSense · connection error", disconnected: "PokerSense · engine disconnected, reconnecting",
+    strategyAdvice: "Strategy advice", detailsEvidence: "Details and evidence", source: "Source",
+    match: "Match", differences: "Differences", gates: "Safety gates", ev: "EV", sizes: "Sizes", reasons: "Reasons", assumptions: "Assumptions",
+    evidence: "Evidence", expires: "Expires", preferred: "preferred",
+    inputSource: "Input", sourceNames: { vision: "vision", manual: "manual", config: "config", derived: "derived", inferred: "inferred" },
+    adviceStates: { READY: "Ready", PARTIAL: "Partial", ABSTAIN: "No advice", STALE: "Expired" },
     fields: { hero_cards: "Hero", board_cards: "Board", street: "Street", pot: "Pot", stacks: "Stacks", bet_size: "Bet", action: "Action" },
   },
   zh: {
@@ -22,6 +27,11 @@ const TRANSLATIONS = {
     frame: "帧", noData: "暂无数据", live: "PokerSense · 已连接", connecting: "PokerSense · 正在连接",
     cannotReach: "PokerSense · 无法连接引擎", waiting: "PokerSense · 等待牌桌",
     connectionError: "PokerSense · 连接错误", disconnected: "PokerSense · 引擎已断开，正在重连",
+    strategyAdvice: "策略建议", detailsEvidence: "详情与证据", source: "来源",
+    match: "匹配", differences: "差异维度", gates: "安全门", ev: "EV", sizes: "尺度", reasons: "原因", assumptions: "假设",
+    evidence: "证据", expires: "有效期", preferred: "首选",
+    inputSource: "输入", sourceNames: { vision: "视觉", manual: "人工", config: "配置", derived: "派生", inferred: "推断" },
+    adviceStates: { READY: "可执行建议", PARTIAL: "部分结果", ABSTAIN: "暂不建议", STALE: "已过期" },
     fields: { hero_cards: "底牌", board_cards: "公共牌", street: "街道", pot: "底池", stacks: "筹码", bet_size: "下注", action: "行动" },
   },
 };
@@ -37,6 +47,12 @@ const els = {
   footerLeft: document.getElementById("footer-left"), footerRight: document.getElementById("footer-right"),
   settingsButton: document.getElementById("settings-button"), settingsDialog: document.getElementById("settings-dialog"),
   settingsClose: document.getElementById("settings-close"), languageSelect: document.getElementById("language-select"),
+  advicePanel: document.getElementById("advice-panel"), adviceStatus: document.getElementById("advice-status"),
+  adviceConfidence: document.getElementById("advice-confidence"), adviceActions: document.getElementById("advice-actions"),
+  adviceBadges: document.getElementById("advice-badges"),
+  adviceMessage: document.getElementById("advice-message"), adviceMeta: document.getElementById("advice-meta"),
+  adviceEvidence: document.getElementById("advice-evidence"),
+  adviceEvidenceContent: document.getElementById("advice-evidence-content"),
 };
 
 let lastBoardCount = 0;
@@ -106,6 +122,74 @@ function renderFieldStatuses(statuses) {
   }
 }
 
+function addMeta(label, value) {
+  if (value === null || value === undefined || value === "") return;
+  const term = document.createElement("dt"); term.textContent = label;
+  const detail = document.createElement("dd"); detail.textContent = value;
+  els.adviceMeta.append(term, detail);
+}
+
+function renderAdvice(advice) {
+  if (!advice) { els.advicePanel.hidden = true; return; }
+  els.advicePanel.hidden = false;
+  els.advicePanel.dataset.status = advice.status;
+  els.adviceStatus.textContent = TRANSLATIONS[activeLanguage()].adviceStates[advice.status] || advice.status;
+  els.adviceConfidence.textContent = `${t("confidence")} ${(advice.confidence * 100).toFixed(0)}%`;
+  els.adviceBadges.replaceChildren();
+  if (advice.match_kind) {
+    const matchBadge = document.createElement("span");
+    matchBadge.className = "advice-badge";
+    matchBadge.textContent = advice.match_kind;
+    els.adviceBadges.appendChild(matchBadge);
+  }
+  const fieldsBySource = {};
+  for (const item of advice.input_provenance || []) {
+    (fieldsBySource[item.source] ||= []).push(item.field_name);
+  }
+  for (const source of Object.keys(fieldsBySource).sort()) {
+    const badge = document.createElement("span");
+    badge.className = `advice-badge source-${source}`;
+    const sourceName = TRANSLATIONS[activeLanguage()].sourceNames[source] || source;
+    badge.textContent = `${t("inputSource")}: ${sourceName} · ${fieldsBySource[source].sort().join(", ")}`;
+    els.adviceBadges.appendChild(badge);
+  }
+  els.adviceActions.replaceChildren();
+  if (advice.show_actions) {
+    for (const item of advice.actions) {
+      const row = document.createElement("div"); row.className = "advice-action" + (item.preferred ? " preferred" : "");
+      const name = document.createElement("strong");
+      name.textContent = `${item.action.toUpperCase()}${item.preferred ? ` · ${t("preferred")}` : ""}`;
+      const probability = document.createElement("span"); probability.textContent = `${(item.probability * 100).toFixed(1)}%`;
+      const detail = document.createElement("small");
+      const pieces = [];
+      if (item.sizes.length) pieces.push(`${t("sizes")}: ${item.sizes.join(" / ")}`);
+      if (item.ev !== null) pieces.push(`${t("ev")}: ${item.ev}`);
+      detail.textContent = pieces.join(" · ");
+      row.append(name, probability, detail); els.adviceActions.appendChild(row);
+    }
+  }
+  const reasons = [...(advice.rejection_reasons || []), ...(advice.missing_inputs || [])];
+  els.adviceMessage.textContent = reasons.length ? `${t("reasons")}: ${reasons.join(", ")}` : "";
+  els.adviceMeta.replaceChildren();
+  addMeta(t("source"), [advice.strategy_source, advice.strategy_version].filter(Boolean).join(" · "));
+  addMeta(t("match"), advice.match_kind ? `${advice.match_kind} · ${(advice.state_match_score * 100).toFixed(0)}%` : null);
+  const matchDimensions = (advice.match_dimensions || []).map((item) =>
+    `${item.name}: ${item.requested} → ${item.matched} (Δ ${item.distance}/${item.maximum_distance})`
+  );
+  addMeta(t("differences"), matchDimensions.join(" · "));
+  const gateResults = (advice.gate_results || []).map((item) =>
+    `${item.name}: ${item.status}${item.reasons.length ? ` (${item.reasons.join(", ")})` : ""}`
+  );
+  addMeta(t("gates"), gateResults.join(" · "));
+  addMeta(t("expires"), advice.expires_at);
+  const evidenceLines = [];
+  if (advice.assumptions && advice.assumptions.length) evidenceLines.push(`${t("assumptions")}: ${advice.assumptions.join(", ")}`);
+  if (advice.evidence && advice.evidence.length) evidenceLines.push(`${t("evidence")}: ${advice.evidence.join("\n")}`);
+  if (advice.missing_evidence && advice.missing_evidence.length) evidenceLines.push(`${t("reasons")}: ${advice.missing_evidence.join(", ")}`);
+  els.adviceEvidenceContent.textContent = evidenceLines.join("\n\n");
+  els.adviceEvidence.hidden = evidenceLines.length === 0;
+}
+
 function render(analysis) {
   lastAnalysis = analysis;
   showStatus("live", "live");
@@ -145,6 +229,7 @@ function render(analysis) {
   els.confidenceValue.textContent = `${t("confidence")} ${(confidence * 100).toFixed(0)}%`;
   els.confidenceBadge.style.background = confidence >= 0.9 ? "var(--good)" : confidence >= 0.6 ? "var(--warn)" : "var(--bad)";
   renderFieldStatuses(Object.fromEntries(analysis.confidence.field_status));
+  renderAdvice(analysis.advice);
   els.footerLeft.textContent = `${t("frame")} ${analysis.frame_seq}`;
   els.footerRight.textContent = new Date().toLocaleTimeString(activeLanguage() === "zh" ? "zh-CN" : "en");
 }
@@ -156,6 +241,7 @@ function renderEmpty() {
   els.segWin.style.width = "0%"; els.segTie.style.width = "0%"; els.equityBar.classList.add("idle");
   els.confidenceValue.textContent = `${t("confidence")} —`; els.confidenceBadge.style.background = "var(--text-faint)";
   renderFieldStatuses({}); els.footerLeft.textContent = `${t("frame")} —`; els.footerRight.textContent = "—";
+  renderAdvice(null);
 }
 
 function showStatus(message, tone, raw = false) {
