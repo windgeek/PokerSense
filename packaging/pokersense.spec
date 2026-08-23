@@ -15,6 +15,14 @@ from pathlib import Path
 block_cipher = None
 
 REPO_ROOT = Path(SPECPATH).resolve().parent
+ASSET_DIR = REPO_ROOT / "packaging" / "assets"
+
+if sys.platform == "darwin":
+    app_icon = ASSET_DIR / "PokerSense.icns"
+elif sys.platform == "win32":
+    app_icon = ASSET_DIR / "PokerSense.ico"
+else:
+    app_icon = None
 
 # uvicorn resolves some protocol/loop implementations dynamically, which
 # PyInstaller's static import analysis can miss.
@@ -64,6 +72,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=str(app_icon) if app_icon is not None else None,
 )
 
 coll = COLLECT(
@@ -80,7 +89,7 @@ if sys.platform == "darwin":
     app = BUNDLE(
         coll,
         name="PokerSense.app",
-        icon=None,
+        icon=str(app_icon),
         bundle_identifier="com.pokersense.desktop",
         info_plist={
             "CFBundleShortVersionString": "0.1.11",

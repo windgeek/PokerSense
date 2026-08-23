@@ -116,6 +116,12 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-23 — application icon:** added a project-owned PokerSense icon
+  (PNG source plus macOS `.icns` and Windows `.ico`) and made the PyInstaller
+  spec select the native format for each platform. The local macOS bundle
+  contains `PokerSense.icns` and passed `codesign --verify --deep --strict`.
+  Windows package validation remains CI-owned.
+
 - **2026-08-23 — strategy UI and cross-platform CI repair:** redesigned the
   desktop Strategy Advice panel around primary action, action frequencies,
   sizes, EV, source, safety reasons, and expandable evidence; non-READY
