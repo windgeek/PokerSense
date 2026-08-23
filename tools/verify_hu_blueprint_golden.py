@@ -20,7 +20,9 @@ def main() -> int:
     parser.add_argument(
         "--golden",
         type=Path,
-        default=Path("tests/fixtures/strategy/provider/hu_preflop_blueprint_golden.json"),
+        default=Path(
+            "tests/fixtures/strategy/provider/hu_preflop_blueprint_golden.json"
+        ),
     )
     args = parser.parse_args()
     repo = args.repo.resolve()

@@ -15,7 +15,8 @@ const TRANSLATIONS = {
     connectionError: "PokerSense · connection error", disconnected: "PokerSense · engine disconnected, reconnecting",
     strategyAdvice: "Strategy advice", detailsEvidence: "Details and evidence", source: "Source",
     match: "Match", differences: "Differences", gates: "Safety gates", ev: "EV", sizes: "Sizes", reasons: "Reasons", assumptions: "Assumptions",
-    evidence: "Evidence", expires: "Expires", preferred: "preferred",
+    evidence: "Evidence", expires: "Expires", preferred: "preferred", recommended: "Primary action",
+    actionMix: "Action mix", adviceUnavailable: "Advice is withheld until the required live inputs are verified.",
     inputSource: "Input", sourceNames: { vision: "vision", manual: "manual", config: "config", derived: "derived", inferred: "inferred" },
     adviceStates: { READY: "Ready", PARTIAL: "Partial", ABSTAIN: "No advice", STALE: "Expired" },
     fields: { hero_cards: "Hero", board_cards: "Board", street: "Street", pot: "Pot", stacks: "Stacks", bet_size: "Bet", action: "Action" },
@@ -29,7 +30,8 @@ const TRANSLATIONS = {
     connectionError: "PokerSense · 连接错误", disconnected: "PokerSense · 引擎已断开，正在重连",
     strategyAdvice: "策略建议", detailsEvidence: "详情与证据", source: "来源",
     match: "匹配", differences: "差异维度", gates: "安全门", ev: "EV", sizes: "尺度", reasons: "原因", assumptions: "假设",
-    evidence: "证据", expires: "有效期", preferred: "首选",
+    evidence: "证据", expires: "有效期", preferred: "首选", recommended: "优先行动",
+    actionMix: "行动频率", adviceUnavailable: "所需实时输入尚未确认，暂不输出行动建议。",
     inputSource: "输入", sourceNames: { vision: "视觉", manual: "人工", config: "配置", derived: "派生", inferred: "推断" },
     adviceStates: { READY: "可执行建议", PARTIAL: "部分结果", ABSTAIN: "暂不建议", STALE: "已过期" },
     fields: { hero_cards: "底牌", board_cards: "公共牌", street: "街道", pot: "底池", stacks: "筹码", bet_size: "下注", action: "行动" },
@@ -49,6 +51,7 @@ const els = {
   settingsClose: document.getElementById("settings-close"), languageSelect: document.getElementById("language-select"),
   advicePanel: document.getElementById("advice-panel"), adviceStatus: document.getElementById("advice-status"),
   adviceConfidence: document.getElementById("advice-confidence"), adviceActions: document.getElementById("advice-actions"),
+  adviceHero: document.getElementById("advice-hero"),
   adviceBadges: document.getElementById("advice-badges"),
   adviceMessage: document.getElementById("advice-message"), adviceMeta: document.getElementById("advice-meta"),
   adviceEvidence: document.getElementById("advice-evidence"),
@@ -153,26 +156,49 @@ function renderAdvice(advice) {
     badge.textContent = `${t("inputSource")}: ${sourceName} · ${fieldsBySource[source].sort().join(", ")}`;
     els.adviceBadges.appendChild(badge);
   }
+  els.adviceHero.replaceChildren();
   els.adviceActions.replaceChildren();
   if (advice.show_actions) {
+    const primary = advice.actions.find((item) => item.preferred) || advice.actions[0];
+    if (primary) {
+      const hero = document.createElement("div"); hero.className = "advice-primary";
+      const copy = document.createElement("div");
+      const label = document.createElement("div"); label.className = "advice-primary-label"; label.textContent = t("recommended");
+      const action = document.createElement("div"); action.className = "advice-primary-action"; action.textContent = primary.action.toUpperCase();
+      copy.append(label, action);
+      const probability = document.createElement("div"); probability.className = "advice-primary-probability";
+      probability.textContent = `${(primary.probability * 100).toFixed(1)}%`;
+      hero.append(copy, probability); els.adviceHero.appendChild(hero);
+    }
+    const mixLabel = document.createElement("div"); mixLabel.className = "advice-mix-label"; mixLabel.textContent = t("actionMix");
+    els.adviceActions.appendChild(mixLabel);
     for (const item of advice.actions) {
       const row = document.createElement("div"); row.className = "advice-action" + (item.preferred ? " preferred" : "");
-      const name = document.createElement("strong");
-      name.textContent = `${item.action.toUpperCase()}${item.preferred ? ` · ${t("preferred")}` : ""}`;
-      const probability = document.createElement("span"); probability.textContent = `${(item.probability * 100).toFixed(1)}%`;
-      const detail = document.createElement("small");
+      const name = document.createElement("span"); name.className = "advice-action-name"; name.textContent = item.action.toUpperCase();
+      const bar = document.createElement("div"); bar.className = "advice-action-bar";
+      const fill = document.createElement("div"); fill.className = "advice-action-fill"; fill.style.width = `${item.probability * 100}%`;
+      bar.appendChild(fill);
+      const probability = document.createElement("span"); probability.className = "advice-action-probability"; probability.textContent = `${(item.probability * 100).toFixed(1)}%`;
+      const detail = document.createElement("div"); detail.className = "advice-action-detail";
       const pieces = [];
       if (item.sizes.length) pieces.push(`${t("sizes")}: ${item.sizes.join(" / ")}`);
       if (item.ev !== null) pieces.push(`${t("ev")}: ${item.ev}`);
       detail.textContent = pieces.join(" · ");
-      row.append(name, probability, detail); els.adviceActions.appendChild(row);
+      row.append(name, bar, probability);
+      if (pieces.length) row.appendChild(detail);
+      els.adviceActions.appendChild(row);
     }
   }
   const reasons = [...(advice.rejection_reasons || []), ...(advice.missing_inputs || [])];
-  els.adviceMessage.textContent = reasons.length ? `${t("reasons")}: ${reasons.join(", ")}` : "";
+  els.adviceMessage.textContent = reasons.length
+    ? `${t("reasons")}: ${reasons.join(", ")}`
+    : (advice.show_actions ? "" : t("adviceUnavailable"));
   els.adviceMeta.replaceChildren();
   addMeta(t("source"), [advice.strategy_source, advice.strategy_version].filter(Boolean).join(" · "));
   addMeta(t("match"), advice.match_kind ? `${advice.match_kind} · ${(advice.state_match_score * 100).toFixed(0)}%` : null);
+  addMeta(t("ev"), advice.ev_gap === null ? null : `Δ ${advice.ev_gap}`);
+  const identity = advice.identity || {};
+  addMeta("Context", identity.player_count ? `${identity.active_player_count}/${identity.player_count} players · v${identity.state_version}` : null);
   const matchDimensions = (advice.match_dimensions || []).map((item) =>
     `${item.name}: ${item.requested} → ${item.matched} (Δ ${item.distance}/${item.maximum_distance})`
   );
@@ -187,7 +213,7 @@ function renderAdvice(advice) {
   if (advice.evidence && advice.evidence.length) evidenceLines.push(`${t("evidence")}: ${advice.evidence.join("\n")}`);
   if (advice.missing_evidence && advice.missing_evidence.length) evidenceLines.push(`${t("reasons")}: ${advice.missing_evidence.join(", ")}`);
   els.adviceEvidenceContent.textContent = evidenceLines.join("\n\n");
-  els.adviceEvidence.hidden = evidenceLines.length === 0;
+  els.adviceEvidence.hidden = evidenceLines.length === 0 && els.adviceMeta.children.length === 0;
 }
 
 function render(analysis) {

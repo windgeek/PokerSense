@@ -116,6 +116,16 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-23 — strategy UI and cross-platform CI repair:** redesigned the
+  desktop Strategy Advice panel around primary action, action frequencies,
+  sizes, EV, source, safety reasons, and expandable evidence; non-READY
+  output remains explicitly withheld. Added repository-wide LF checkout and
+  UTF-8 CI defaults so strategy fixtures, documentation, UI contract tests,
+  and benchmark hashes do not vary on Windows; fixed the merged verifier's
+  lint issue. Full pytest, flake8 (including `tools`), and local browser
+  rendering against a READY strategy fixture passed. The Windows GitHub run
+  must still confirm the platform-specific repair.
+
 - **2026-08-23 — multiplayer strategy merge:** merged
   `codex/multiplayer-strategy-system` into `main` after retaining the Android
   ADB capture path. The live stream now emits atomic `DesktopFrame` values and
