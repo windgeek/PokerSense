@@ -80,6 +80,8 @@ Advice，UI 侧只渲染原子的 `DesktopFrame`，不推断牌局事实或策�
 
 当前接口和责任 Gap 的权威表见
 [`docs/product-requirements.md` 2.3](docs/product-requirements.md#23-策略识别与-ui-的协作边界)。
+伙伴可直接执行的任务和验收清单见
+[`docs/recognition-ui-handoff.md`](docs/recognition-ui-handoff.md)。
 真实联调前必须冻结 `platform_id + layout_id + mapping version`、Replay hash、Provider/version
 和 UI build；否则不同团队各自通过测试仍不能证明同一条产品链路成立。
 

@@ -124,6 +124,9 @@ Provider；WPK 尚不能生成 actor/stack/action-line 等必需权威输入；U
 输出动作总频率和尺度列表，尚未输出每个尺度各自的频率。三项分别由策略/集成、识别、
 策略输出合同负责，不能把其中任何一项作为 UI 层猜测逻辑实现。
 
+伙伴的可执行任务顺序、源码入口、字段示例和提交前清单见
+[`recognition-ui-handoff.md`](recognition-ui-handoff.md)。
+
 ## 3. 场景覆盖要求
 
 ### 3.1 玩家人数

@@ -95,6 +95,9 @@ structure; do not represent a local build as a clean-user installation test.
   coverage rules, performance budgets, CI tiers, and release gates.
 - `docs/capture-replay.md`: hash-pinned raw-frame Replay registration,
   recognizer evidence binding, quality-report contract, and R6 eligibility.
+- `docs/recognition-ui-handoff.md`: practical handoff for the parallel WPK
+  recognition and Live Coach UI work, including existing modules, owned gaps,
+  frozen contracts, sequencing, and acceptance checklists.
 - `architecture.md`: overall design and data flow.
 - `docs/`: subsystem contracts and architecture decisions. Keep these files
   concise and update the owning document rather than creating duplicate notes.
@@ -105,6 +108,16 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-08-23 — partner-facing recognition/UI handoff:** added a standalone
+  implementation handoff for the parallel WPK recognition and Live Coach UI
+  work. It inventories the strategy/state capabilities already present, gives
+  prioritized recognition and UI work tables, defines the `RawObservation`,
+  `PlatformSeatMapping`, and `DesktopFrame` boundaries, identifies strategy-
+  owned gaps that the partner must not guess around, and supplies development,
+  Replay, UI-sequence, and shared R6 acceptance checklists. Documentation link
+  and diff checks passed; this changes no released behavior. Real WPK Replay
+  and interactive UI acceptance remain outstanding.
 
 - **2026-08-23 — recognition/UI integration handoff and branch packaging:**
   documented the production boundary between the multiplayer strategy/state
