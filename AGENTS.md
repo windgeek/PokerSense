@@ -98,6 +98,9 @@ structure; do not represent a local build as a clean-user installation test.
 - `docs/recognition-ui-handoff.md`: practical handoff for the parallel WPK
   recognition and Live Coach UI work, including existing modules, owned gaps,
   frozen contracts, sequencing, and acceptance checklists.
+- `docs/test-report-2026-08-23.md`: commit-bound development regression and
+  target-hardware performance results, environmental blockers, requirement
+  verdicts, and the remaining release evidence.
 - `architecture.md`: overall design and data flow.
 - `docs/`: subsystem contracts and architecture decisions. Keep these files
   concise and update the owning document rather than creating duplicate notes.
@@ -108,6 +111,19 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-08-23 — development regression and performance report:** recorded a
+  commit-bound Python 3.13/M1 Pro report for the multiplayer strategy branch.
+  The strategy suite passed 1,080 tests in 4.10s; the available full suite
+  passed 1,766 with 3 Windows-only skips in 23.55s. The isolated Quartz file
+  had 6 passes, 7 TCC-precondition failures, and one real-capture skip, which
+  remains an environment blocker rather than being relabeled as passing.
+  Five-repeat Adaptive Equity measurements reported p95 1,065.064ms/7.436
+  outcomes-per-ms for exact HU, 1,373.229ms/7.282 trials-per-ms for HU MC,
+  and 2,006.896ms/4.983 trials-per-ms for 3-way MC; the conservative 3/2
+  operations-per-ms policy remains unchanged. Flake8, 298-fixture, JavaScript,
+  and diff checks passed. Real WPK Replay, stable-state-to-render p95, UI
+  interaction, soak, package, and clean-install evidence remain missing.
 
 - **2026-08-23 — partner-facing recognition/UI handoff:** added a standalone
   implementation handoff for the parallel WPK recognition and Live Coach UI
