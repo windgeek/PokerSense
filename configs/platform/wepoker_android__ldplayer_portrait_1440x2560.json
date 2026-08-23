@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "platform_id": "wepoker_android",
+  "layout_id": "ldplayer_portrait_1440x2560",
+  "reference_size": [1440, 2560],
+  "aspect_tolerance": 0.01,
+  "rois": [
+    {
+      "kind": "hero_cards",
+      "slot_id": null,
+      "x": 0.3888888889,
+      "y": 0.823046875,
+      "width": 0.2236111111,
+      "height": 0.0875
+    }
+  ]
+}

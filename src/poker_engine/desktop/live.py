@@ -1,21 +1,21 @@
-"""Live capture: drive the realtime pipeline from a real poker window.
+"""Live capture from WePoker Android running in LDPlayer.
 
 Assembles the whole chain the engine was built for —
 
-    CaptureService -> VisionEngine -> ChangeDetector -> Orchestrator
+    ADB CaptureService -> VisionEngine -> ChangeDetector -> Orchestrator
         -> StateEngine -> Equity -> RealtimeAnalysis
 
-— against a real on-screen window, using the calibration measured from real
-WePoker H5 captures (``configs/platform/`` and ``configs/vision/``).
+— against the emulator's raw portrait framebuffer, using calibration measured
+from real 1440x2560 LDPlayer ADB captures.
 
-Scope, stated plainly: only the **hero cards** are calibrated for WePoker so
+Scope, stated plainly: only the **hero cards** are calibrated for Android so
 far. Board cards, pot and street have no measured ROIs yet, so the Vision
 Engine reports them ``UNKNOWN`` and the equity shown is preflop equity for
 the hero hand against a random range. That is a real, useful number, but it
 is not a full table read — finishing the calibration is what closes that gap.
 
-Recoverable problems (window closed, screen-recording permission not
-granted, window resized past the layout's aspect tolerance) are surfaced as
+Recoverable problems (ADB unavailable, emulator stopped, ambiguous devices,
+or a resolution outside the calibrated aspect tolerance) are surfaced as
 :class:`LiveCaptureError` so the UI can show what is wrong instead of the
 process dying.
 """
@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import sys
 from collections.abc import AsyncIterator
 from pathlib import Path
@@ -86,29 +87,23 @@ def _resource_root() -> Path:
 
 
 _REPO_ROOT = _resource_root()
-DEFAULT_PLATFORM = "wepoker"
-DEFAULT_LAYOUT = "h5_2max"
-DEFAULT_WINDOW_TITLE = "WePoker-H5"
+DEFAULT_PLATFORM = "wepoker_android"
+DEFAULT_LAYOUT = "ldplayer_portrait_1440x2560"
+DEFAULT_DEVICE_SERIAL = os.environ.get("POKERSENSE_ADB_SERIAL", "auto")
 
 
 class LiveCaptureError(RuntimeError):
-    """A live capture problem the user can act on (window, permission, layout)."""
+    """A live capture problem the user can act on (ADB, device, or layout)."""
 
 
 def build_capture_backend() -> CaptureService:
-    """Return the capture backend for this OS."""
-    if sys.platform == "darwin":
-        from poker_engine.perceptual.capture.quartz_backend import QuartzBackend
+    """Return the production ADB backend."""
+    from poker_engine.perceptual.capture.adb_backend import AdbBackend
 
-        return QuartzBackend()
-    if sys.platform == "win32":
-        from poker_engine.perceptual.capture.mss_backend import MssBackend
-
-        return MssBackend()
-    raise LiveCaptureError(
-        f"live capture is not supported on {sys.platform!r}; "
-        "macOS and Windows have capture backends"
-    )
+    try:
+        return AdbBackend()
+    except RuntimeError as exc:
+        raise LiveCaptureError(str(exc)) from exc
 
 
 def _uncalibrated(name: str) -> ConfidenceCalibrator:
@@ -187,14 +182,17 @@ def load_calibration(
         )
 
     table_map = TableMap.from_json(table_map_path.read_text())
+    calibration_data = json.loads((vision_dir / "calibration.json").read_text())
+    template_source = calibration_data.get("template_source", platform)
+    template_dir = _REPO_ROOT / "configs" / "vision" / template_source
     hero_layout = hero_layout_from_dict(
         json.loads((vision_dir / "hero_slot_layout.json").read_text())
     )
 
     card_recognizer = CornerGlyphCardRecognizer(
         CornerGlyphTemplateSet(
-            rank_templates=_load_templates(vision_dir / "rank"),
-            suit_templates=_load_templates(vision_dir / "suit"),
+            rank_templates=_load_templates(template_dir / "rank"),
+            suit_templates=_load_templates(template_dir / "suit"),
             version=f"{platform}-{layout}-v1",
         )
     )
@@ -210,7 +208,9 @@ def load_calibration(
             CardSubROI(x=i * 0.2, y=0.0, width=0.19, height=1.0) for i in range(5)
         ),
     )
-    _placeholder_rank = cv2.imread(str(next((vision_dir / "rank").glob("*.png"))))
+    _placeholder_rank = cv2.imread(
+        str(next((template_dir / "rank").glob("*.png")))
+    )
     amount_recognizer = TemplateAmountRecognizer(
         DigitTemplateSet(
             templates={"0": _placeholder_rank}, version="uncalibrated"
@@ -219,7 +219,7 @@ def load_calibration(
     action_recognizer = TemplateActionRecognizer(
         ActionTemplateSet(
             templates={ActionType.FOLD: cv2.imread(
-                str(next((vision_dir / "suit").glob("*.png")))
+                str(next((template_dir / "suit").glob("*.png")))
             )},
             version="uncalibrated",
         )
@@ -260,22 +260,16 @@ def load_calibration(
     return table_map, engine
 
 
-class WindowFrameSource:
-    """FrameSource that captures a named on-screen window on every pull."""
+class DeviceFrameSource:
+    """FrameSource that captures one explicit ADB device on every pull."""
 
     def __init__(
         self,
         backend: CaptureService,
-        window_title: str,
-        window_index: int | None = None,
-        allow_fullscreen_fallback: bool = False,
+        device_serial: str,
     ) -> None:
         self._backend = backend
-        self._target = CaptureTarget(
-            window_id=window_title,
-            window_index=window_index,
-            allow_fullscreen_fallback=allow_fullscreen_fallback,
-        )
+        self._target = CaptureTarget(window_id=device_serial)
 
     def next_frame(self) -> Frame | None:
         try:
@@ -316,12 +310,11 @@ def _seed_state(hand_id: str = "live-1") -> PokerState:
 
 
 def build_pipeline(
-    window_title: str = DEFAULT_WINDOW_TITLE,
-    window_index: int | None = None,
+    device_serial: str = DEFAULT_DEVICE_SERIAL,
     platform: str = DEFAULT_PLATFORM,
     layout: str = DEFAULT_LAYOUT,
 ) -> RealtimePipeline:
-    """Assemble a pipeline reading from a live window."""
+    """Assemble a pipeline reading raw portrait frames from LDPlayer."""
     table_map, vision = load_calibration(platform, layout)
     measured = load_measured_calibration(_REPO_ROOT / "configs" / "vision" / platform)
     orchestrator = ApplicationOrchestrator(
@@ -337,17 +330,7 @@ def build_pipeline(
         return _seed_state(hand_id=f"live-{next_hand_number}")
 
     orchestrator.start_hand(_seed_state(hand_id="live-1"))
-    frame_source = WindowFrameSource(
-        build_capture_backend(),
-        window_title,
-        window_index,
-        # The committed WePoker H5 calibration is for a full primary-display
-        # table. This recovers from macOS omitting Chrome's window title for a
-        # newly authorized packaged app without weakening generic capture.
-        allow_fullscreen_fallback=(
-            platform == DEFAULT_PLATFORM and layout == DEFAULT_LAYOUT
-        ),
-    )
+    frame_source = DeviceFrameSource(build_capture_backend(), device_serial)
     return RealtimePipeline(
         frame_source,
         vision,
@@ -362,18 +345,17 @@ def build_pipeline(
 
 
 async def live_analysis_stream(
-    window_title: str = DEFAULT_WINDOW_TITLE,
-    window_index: int | None = None,
+    device_serial: str = DEFAULT_DEVICE_SERIAL,
     interval_seconds: float = 1.0,
 ) -> AsyncIterator[RealtimeAnalysis]:
-    """Yield a fresh analysis for as long as the window can be captured.
+    """Yield fresh analysis while the selected ADB device is available.
 
     Capture and recognition are CPU-bound and run off the event loop, so the
     server stays responsive between frames.
     """
     try:
         pipeline = await asyncio.to_thread(
-            build_pipeline, window_title, window_index
+            build_pipeline, device_serial
         )
     except LiveCaptureError:
         raise
@@ -397,10 +379,10 @@ __all__ = [
     "LiveCaptureError",
     "build_confidence_gate",
     "load_measured_calibration",
-    "WindowFrameSource",
+    "DeviceFrameSource",
     "build_capture_backend",
     "build_pipeline",
     "live_analysis_stream",
     "load_calibration",
-    "DEFAULT_WINDOW_TITLE",
+    "DEFAULT_DEVICE_SERIAL",
 ]

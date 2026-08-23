@@ -12,6 +12,7 @@ from .capture.base import (
     WindowRect,
 )
 from .capture.fake_backend import FakeBackend
+from .capture.adb_backend import AdbBackend
 from .vision.errors import TableMapError, TableMapMismatchError
 from .vision.roi import (
     check_layout_compatibility,
@@ -28,6 +29,7 @@ __all__ = [
     "Frame",
     "WindowRect",
     "FakeBackend",
+    "AdbBackend",
     "ROIKind",
     "ROI",
     "TableMap",

@@ -31,12 +31,15 @@ changing desktop capture, recognition, packaging, or project documentation.
 
 - Default branch: `main`.
 - Current release: `v0.1.11` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.11), source commit `f963181`.
-- The desktop app reads a live WePoker H5 window, recognizes **hero cards**,
-  and displays preflop equity against a random range.
+- The `main` desktop path reads WePoker Android from a portrait LDPlayer
+  instance over ADB, recognizes **hero cards**, and displays preflop equity
+  against a random range. Published v0.1.11 installers still contain the
+  legacy H5 path; do not describe Android capture as released yet.
 - A different hero-card pair must be visible for two consecutive frames before
   it starts a new hand. This prevents deal-animation reads from replacing the
   prior hand while allowing the companion window to refresh on every deal.
-- Board cards, pot, and street are deliberately unavailable until each has
+- Android board cards, pot, seats/stacks, dealer/actor, actions, and street are
+  deliberately unavailable until each has
   its own measured platform calibration. Do not infer them from hero-card
   confidence.
 - Capture frames are memory-only. The only persistent user setting is UI
@@ -44,17 +47,18 @@ changing desktop capture, recognition, packaging, or project documentation.
 
 ## Live-capture constraints
 
-- The user tests a two-player WePoker table in two Chrome windows with the
-  same title, `WePoker-H5`: the normal Chrome window is the user's seat and
-  the incognito window is the second seat.
-- Never choose a same-titled window implicitly. Use
-  `tools/list_windows.py --title WePoker-H5` and pass an explicit
-  `--window-index` when both are visible.
-- macOS capture sees windows only on the active Space. Keep the poker table
-  on the current Space while using PokerSense.
-- Screen Recording permission is tied to the executable path. A rebuilt venv
-  or a newly installed app may need permission granted again in **System
-  Settings → Privacy & Security → Screen Recording**.
+- Production input is `adb -s <serial> exec-out screencap -p` from LDPlayer,
+  currently calibrated at 1440x2560 portrait. Host window coordinates, DPI,
+  visibility, and occlusion are not part of the Android TableMap.
+- Never choose among multiple ADB devices implicitly. `auto` is allowed only
+  when exactly one authorized device exists; otherwise require
+  `--device-serial` or `POKERSENSE_ADB_SERIAL`.
+- Resolve ADB from `POKERSENSE_ADB_PATH` or PATH. Treat offline, unauthorized,
+  timeout, corrupt PNG, and device disappearance as recoverable capture errors.
+- Android and H5 never share ROIs or calibration evidence. They may share
+  platform-neutral recognition algorithms and identical card-art templates.
+- Real calibration screenshots and ZIPs are private inputs, ignored by Git,
+  and never packaged. Retain only a small redacted labeled regression set.
 
 ## Local development and packaging
 
@@ -95,6 +99,63 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-23 — 234-frame Android dataset audit:** inspected the private
+  LDPlayer ZIP without adding its contents to the workspace or Git. It contains
+  234 valid 1440x2560 PNGs plus 234 sidecars: the original 178-frame sequence
+  and 56 later `before-2` / `before-1` / `action` captures, not 234 independent
+  new samples. All prior 66 deduplicated frames are present exactly. The
+  current Android hero recognizer produced 188 `VALID`, 39 `UNKNOWN`, and seven
+  low-score duplicate-card `CONFLICT` outcomes; reviewed action frames show
+  the conflicts are card backs and the low-score candidates are overlays or
+  correctly abstained visible hands. No confirmed false `VALID` was found in
+  the reviewed set, but the sidecars still lack hero/board/street/action ground
+  truth, so calibration counts and thresholds were deliberately unchanged.
+  The new temporal triplets materially improve coverage for deal transitions,
+  folds, results, menus, multiplayer/showdown geometry, and negative scenes.
+  No product code changed for this audit.
+
+- **2026-08-23 — Android/LDPlayer production pivot:** replaced the default H5
+  window path on `main` with explicit ADB device capture for WePoker Android
+  portrait frames. Added fail-closed multi-device selection, timeout/error/PNG
+  validation, a 1440x2560 Android TableMap, Android-specific hero geometry and
+  calibration, and kept shared WePoker card-art templates separate from ROI
+  evidence. On 66 private deduplicated frames from two LDPlayer instances,
+  the production VisionEngine read all 58 visible-hand frames correctly across
+  23 distinct hero hands (minimum accepted raw score 0.771); all eight
+  login/transition/menu/no-card frames abstained. Raw frames remain untracked
+  and are not runtime assets. Focused and full tests (690 passed, 3 skipped),
+  flake8, legacy-H5 calibration loading, and package-resource inclusion checks
+  passed; live Windows LDPlayer and package verification remain pending.
+
+- **2026-08-22 — experimental board calibration:** calibrated a read-only
+  normalized board search band and dynamic card-face geometry on three of the
+  13 unique supplied WePoker screenshots (one flop, one river, one empty
+  board), then evaluated the frozen rules on the remaining ten. Reusing the
+  existing held-out corner-glyph templates, the experiment read every stable
+  board exactly and abstained on both the vertically occluded turn and the
+  one-card deal animation: 13/13 overall scene outcomes and 10/10 on the
+  holdout, averaging 2.663ms (p95 4.180ms). This is promising calibration
+  evidence, not production support: the sample comes from one table/client
+  family, static empty-board detection still needs temporal/street context,
+  and the current fixed five-slot `BoardSlotLayout` cannot express the
+  observed dynamically centered flop/turn/river geometry. No runtime,
+  configuration, API secret, or supplied frame was persisted.
+- **2026-08-21 — DeepSeek V4 Flash Vision experiment:** benchmarked the
+  official `deepseek-v4-flash-vision-exp` API against 14 supplied WePoker
+  screenshots (13 unique), without changing runtime code or retaining frames.
+  Full-screen VLM input read the hero hand correctly on 10/13 unique images
+  and all visible hero+board cards on 5/13 after normalizing `10` to `T`; it
+  frequently confused suits and incorrectly accepted a mid-deal frame as a
+  stable flop. Adding explicit hero and board crops corrected 5 of the 8
+  retested failures, but the occluded turn, deal animation, and one showdown
+  suit remained wrong. Full-screen calls averaged 3.188s (p95 3.893s); 14
+  calls used 8,218 input and 2,517 output tokens, costing about $0.00347
+  off-peak or $0.00694 peak at the published rates. The existing local hero
+  recognizer averaged 4.49ms and produced 10/13 exact `VALID` reads plus three
+  `UNKNOWN` abstentions, with no incorrect accepted hand. Conclusion: do not
+  replace trusted local/temporal perception with full-screen VLM inference;
+  evaluate an event-triggered, ROI-cropped VLM adapter behind deterministic
+  scene, temporal, schema, and card-consistency gates.
 - **2026-08-21 — v0.3 target architecture:** replaced the frozen v0.2.1
   plan with a staged architecture for authorized, self-hosted training. The
   design adds trusted temporal perception, State/Event Engine v2, Bayesian
@@ -151,10 +212,12 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Open work
 
-1. Collect user-labeled real captures, especially genuine recognition errors,
-   deal transitions, and result overlays, before changing hero-card templates
-   or thresholds.
-2. Calibrate board cards, pot, and street from independently measured real
-   table captures.
-3. Improve CI coverage so ordinary feature-branch pushes and pull requests run
+1. Run the new ADB path against a live Windows LDPlayer instance, measure
+   capture latency/reconnect behavior, and package it only after that passes.
+2. Collect user-labeled Android captures for board, pot, occupied/active seats,
+   stacks, dealer/actor, actions, action history, all-in/side-pot, hand
+   transitions, overlays, and genuine failures.
+3. Calibrate Android board cards, pot, and street from independently measured
+   real table captures; keep every unmeasured field `UNKNOWN`.
+4. Improve CI coverage so ordinary feature-branch pushes and pull requests run
    the test suite, not only `main` and release tags.

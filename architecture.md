@@ -2,6 +2,7 @@
 
 > 单桌德州扑克实时训练助手：可信感知 → 权威状态 → 范围与策略 → 可解释建议 → 训练闭环
 > 目标环境：自建牌局、朋友对练、教学演示
+> 运行平台：Windows 雷电模拟器 + WePoker Android 1440×2560 竖屏；H5 不再是产品主路径
 > 最高原则：**状态正确性 > 建议可靠性 > 可观测性 > 实时性 > 功能数量**
 
 ## 0. 文档地位
@@ -14,6 +15,7 @@
 
 | 版本 | 变更 |
 |---|---|
+| v0.3.1 | 将生产采集从桌面 H5 窗口切换为雷电 ADB 原始竖屏帧；Android/H5 几何隔离；路线改为 2–9 人单桌状态与多人策略路由 |
 | v0.3 | 面向授权对练的实时建议；加入 Temporal Consensus、State/Event Engine v2、Range Tracker、Decision Context、Strategy Router、Decision Fusion、Advice、训练闭环和五阶段最优路线 |
 | v0.2.1 | 深层不可变、Decimal 金额、置信度门控、事件记忆、异步结果版本保护 |
 
@@ -41,8 +43,8 @@ subject to canonical state is trustworthy
 
 | 能力 | 当前 `main` | v0.3 目标 |
 |---|---|---|
-| Capture | macOS/Windows 后端；macOS 当前 Space 限制 | 稳定窗口身份、真实 capture 延迟测量 |
-| Hero cards | WePoker 真实样本已标定 | 持续扩充独立真实样本 |
+| Capture | ADB 直读雷电 framebuffer；多实例必须显式 serial | 设备重连、真实 ADB capture 延迟与掉线恢复测量 |
+| Hero cards | Android 1440×2560：58/58 可见帧正确，8/8 非手牌帧 abstain；23 个不同手牌 | 扩充独立设备、主题、分辨率与真实失败样本 |
 | Board / pot / street | 未做真实平台标定，生产中为 `UNKNOWN` | 独立 ROI、校准和多帧确认 |
 | State | 权威更新 hero/board/street/pot | actor、stack、action、to-call、合法动作、hand boundary |
 | Equity | 枚举、Monte Carlo、range equity、pot odds | 后验范围、多精度预算、置信区间和缓存 |
@@ -71,7 +73,7 @@ Capture Adapter
   → StableObservation
 ```
 
-- `Capture Adapter` 绑定窗口身份、帧序号、时间戳和坐标。
+- `Capture Adapter` 绑定 ADB device serial、帧序号、时间戳和 framebuffer 坐标。多个设备时禁止隐式选择。
 - `Vision Engine` 只输出候选值、raw score 和证据，不直接修改状态。
 - `Temporal Consensus` 通过连续帧确认、动画抑制和冲突检测形成稳定观察。
 - `Confidence Gate` 将达不到独立测量阈值的字段降级为 `UNKNOWN`。
@@ -133,16 +135,17 @@ Fast Path 无网络依赖，不调用 LLM，不等待重型 solver。目标 p95�
 
 | 阶段 | 预算 |
 |---|---:|
-| 真实窗口 capture | 25ms |
+| 真实 ADB capture | 80ms |
 | Vision + temporal consensus | 25ms |
 | State + derived metrics | 10ms |
 | Range update + strategy lookup | 25ms |
 | Equity | 190ms |
 | Fusion + transport + render | 25ms |
-| **总计** | **≤300ms** |
+| **总计** | **≤355ms（M1 实测后再收紧）** |
 
 当前合成基准的总链路 p95 约 191ms，其中 equity p95 约 183ms；capture 是 no-op，
-所以必须用真实窗口重新测端到端预算。
+所以必须用真实雷电 ADB 链路重新测端到端预算。ADB 全帧截图不按固定 FPS 空转；后续采用低频心跳、
+场景变化与行动窗口触发，必要时再对 ROI 提高采样率。
 
 ### 4.5 Slow Path
 
@@ -277,7 +280,7 @@ seed 由 `session_id + hand_id + state_version` 派生。人类玩家是唯一�
 | 层级 | 来源 | 典型延迟 | 适用场景 |
 |---|---|---:|---|
 | L0 | legality / safety | <1ms | 合法动作、状态拒答 |
-| L1 | Preflop DB | <5ms | 标准 HU preflop 节点 |
+| L1 | Preflop DB | <5ms | 对应人数、位置和筹码深度的标准 preflop 节点 |
 | L2 | Canonical presolved cache | 5–20ms | 标准 postflop 节点 |
 | L3 | Lightweight policy/value model | 10–80ms | cache miss 的近似策略 |
 | L4 | Local resolver / CFR backend | 0.5–5s+ | 小 EV gap、异常尺度、局后精算 |
@@ -300,9 +303,9 @@ Live Coach 与 Hand Debrief 必须消费同一状态、事件和策略接口，�
 
 ## 9. 最优实施路线
 
-### M1 — 完整、可信的 heads-up 状态
+### M1 — 完整、可信的 Android 单桌状态
 
-- 采集真实 flop/turn/river、pot、stack、action、actor 标注帧。
+- 采集真实 2–9 人、flop/turn/river、pot、stack、action、actor、dealer、空座和 all-in 标注帧。
 - 完成各字段独立 calibration 和 Temporal Consensus。
 - 实现 State/Event Engine v2、hand boundary、下注合法性和筹码守恒。
 - UI 先展示 SPR、pot odds、有效筹码和行动历史。
@@ -312,14 +315,14 @@ Live Coach 与 Hand Debrief 必须消费同一状态、事件和策略接口，�
 ### M2 — 可解释的基础建议
 
 - 落地 `DecisionContext`、`RangeDistribution` 和 `Advice`。
-- 加入 HU preflop DB、Bayesian Range Tracker、range equity 和 action EV。
+- 加入按人数路由的 preflop DB、Bayesian Range Tracker、range equity 和 action EV。
 - 输出动作频率、尺度、EV gap、来源与置信度。
 
 退出标准：200–500 个 golden spots 通过人工/基准解校验；真实 p95 首次建议 ≤300ms。
 
 ### M3 — 预解库与训练闭环
 
-- 离线生成标准 HU solution bundle 和 canonical index。
+- 离线生成按人数/位置区分的 solution bundle 和 canonical index。
 - 记录玩家动作，计算 EV loss，分类漏点并生成训练题。
 - 对同一节点验证 Live Advice 与 Debrief 一致。
 
@@ -340,7 +343,7 @@ Live Coach 与 Hand Debrief 必须消费同一状态、事件和策略接口，�
 ### 感知
 
 - accuracy、coverage、unknown rate、negative false-positive rate。
-- 真实平台独立样本；按主题、DPI、窗口尺寸和动画阶段分层。
+- 真实平台独立样本；按模拟器版本、Android UI、分辨率、主题和动画阶段分层。
 - 使用 Wilson lower bound，不把小样本全对直接宣称为 100% 可靠。
 
 ### 状态

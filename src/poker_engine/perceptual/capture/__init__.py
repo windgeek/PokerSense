@@ -8,6 +8,7 @@ from .base import (
     WindowRect,
 )
 from .fake_backend import FakeBackend
+from .adb_backend import AdbBackend
 from .mss_backend import MssBackend
 from .quartz_backend import (
     QuartzBackend,
@@ -24,6 +25,7 @@ __all__ = [
     "Frame",
     "WindowRect",
     "FakeBackend",
+    "AdbBackend",
     "MssBackend",
     "QuartzBackend",
     "WindowCandidate",

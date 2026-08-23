@@ -25,6 +25,10 @@
 
 ## 关键边界
 
+- **平台隔离**：Android 与 H5 的 TableMap、slot layout 和校准证据完全分开。相同 WePoker 牌面美术可通过 `template_source` 复用 rank/suit 模板，但不得据此复用 ROI 或置信度。
+- **当前 Android 证据**：66 张去重 1440×2560 ADB 帧中，58 张可见 Hero 手牌全部读对，覆盖 23 个不同手牌；8 张非手牌场景全部 abstain。校准计数按不同手牌去除时间相关重复。
+- **Hero 定位**：优先使用 Android 固定 ROI；弹窗、结果动画等导致牌面上移时，使用仅限画面下部中央的双白牌动态定位。仍要求两帧确认后才写入新手牌。
+
 - **Street**：5 视觉 board slot 位置派生（EEEEE/CCCEE/CCCCE/CCCCC），非标准模式 → CONFLICT，任一 UNKNOWN → UNKNOWN；与 board_cards 交叉校验。
 - **Bet Size**：scalar `bet_size` 仅当恰好一个全局 BET_SIZE ROI（Task 6 契约已结构性保证：BET_SIZE 强制 slot_id=None + 唯一键）。
 - **Confidence**：raw score ≠ confidence；per-detector 校准 → `[0,1]`；`abstain_floor` 非 Task 5 阈值。

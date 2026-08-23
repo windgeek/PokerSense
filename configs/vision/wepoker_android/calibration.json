@@ -1,0 +1,14 @@
+{
+  "schema_version": 1,
+  "platform_id": "wepoker_android",
+  "layout_id": "ldplayer_portrait_1440x2560",
+  "template_source": "wepoker",
+  "measured_at": "2026-08-23",
+  "card": {
+    "samples": 46,
+    "correct": 46,
+    "readable_score_floor": 0.7,
+    "unreadable_score_ceiling": 0.0,
+    "source": "46 cards across 23 distinct hero hands in 58 full-resolution 1440x2560 ADB frames from two LDPlayer instances, manually compared with the source frames; repeated temporal views of the same hand were not counted as independent accuracy samples. All 58 visible-hand frames read correctly (minimum accepted raw score 0.771). Eight login/transition/menu/result frames abstained with raw score 0.0. Card art templates are shared with WePoker H5; geometry and confidence evidence are Android-specific."
+  }
+}

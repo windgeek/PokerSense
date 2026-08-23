@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -9,6 +10,7 @@ import numpy as np
 import pytest
 
 from poker_engine.perceptual import (
+    AdbBackend,
     CaptureError,
     CaptureTarget,
     FakeBackend,
@@ -128,6 +130,60 @@ def test_capture_target_window_index_rejected_when_invalid(index):
 def test_capture_target_requires_boolean_fullscreen_fallback():
     with pytest.raises(TypeError):
         CaptureTarget(window_id="table", allow_fullscreen_fallback="yes")
+
+
+def _png_bytes(image: np.ndarray) -> bytes:
+    import cv2
+
+    ok, payload = cv2.imencode(".png", image)
+    assert ok
+    return payload.tobytes()
+
+
+def test_adb_backend_auto_selects_single_device_and_decodes_png():
+    image = np.full((8, 6, 3), 23, dtype=np.uint8)
+
+    def runner(command, **kwargs):
+        if command[-1] == "devices":
+            return subprocess.CompletedProcess(
+                command, 0, "List of devices attached\nemulator-5554\tdevice\n", ""
+            )
+        return subprocess.CompletedProcess(command, 0, _png_bytes(image), b"")
+
+    backend = AdbBackend(adb_path="adb", runner=runner)
+    frame = backend.capture(CaptureTarget(window_id="auto"))
+
+    assert frame.window_id == "emulator-5554"
+    assert frame.image.shape == (8, 6, 3)
+    assert frame.frame_seq == 0
+
+
+def test_adb_backend_requires_explicit_serial_for_multiple_devices():
+    def runner(command, **kwargs):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "List of devices attached\nemulator-5554\tdevice\n"
+            "emulator-5556\tdevice\n",
+            "",
+        )
+
+    backend = AdbBackend(adb_path="adb", runner=runner)
+    with pytest.raises(CaptureError, match="multiple ADB devices"):
+        backend.capture(CaptureTarget(window_id="auto"))
+
+
+def test_adb_backend_rejects_invalid_png():
+    def runner(command, **kwargs):
+        if command[-1] == "devices":
+            return subprocess.CompletedProcess(
+                command, 0, "List of devices attached\nemulator-5558\tdevice\n", ""
+            )
+        return subprocess.CompletedProcess(command, 0, b"not a png", b"")
+
+    backend = AdbBackend(adb_path="adb", runner=runner)
+    with pytest.raises(CaptureError, match="invalid PNG"):
+        backend.capture(CaptureTarget(window_id="emulator-5558"))
 
 
 # --- DPI awareness fail-fast contract (mocked) ---

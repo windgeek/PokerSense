@@ -2,10 +2,10 @@
 
 Runs entirely on localhost — a companion process for the desktop shell, not
 a network service. ``/ws`` streams :class:`RealtimeAnalysis` produced from a
-real capture of the poker window (see ``live.py``).
+real ADB capture of the selected LDPlayer instance (see ``live.py``).
 
-A capture problem (window not open, screen-recording permission not granted,
-window resized past the layout's tolerance) is a normal condition, not a
+A capture problem (ADB unavailable, emulator stopped, ambiguous devices, or
+an unsupported framebuffer aspect ratio) is a normal condition, not a
 crash: it is sent to the UI as a ``{"error": ...}`` frame so the user is told
 what to fix, and the stream keeps retrying.
 """
@@ -26,7 +26,7 @@ from starlette.responses import Response
 
 from poker_engine.realtime.analysis import RealtimeAnalysis
 
-from .live import DEFAULT_WINDOW_TITLE, LiveCaptureError, live_analysis_stream
+from .live import DEFAULT_DEVICE_SERIAL, LiveCaptureError, live_analysis_stream
 from .serialize import analysis_to_dict
 from .settings import load_settings, save_language
 
@@ -72,7 +72,7 @@ _RETRY_SECONDS = 3.0
 
 
 def _default_stream() -> AsyncIterator[RealtimeAnalysis]:
-    return live_analysis_stream(DEFAULT_WINDOW_TITLE)
+    return live_analysis_stream(DEFAULT_DEVICE_SERIAL)
 
 
 def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastAPI:
@@ -116,11 +116,10 @@ def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastA
 def run(
     host: str = "127.0.0.1",
     port: int = 8765,
-    window_title: str = DEFAULT_WINDOW_TITLE,
-    window_index: int | None = None,
+    device_serial: str = DEFAULT_DEVICE_SERIAL,
 ) -> None:
     def stream() -> AsyncIterator[RealtimeAnalysis]:
-        return live_analysis_stream(window_title, window_index)
+        return live_analysis_stream(device_serial)
 
     import uvicorn
 
@@ -132,12 +131,11 @@ __all__ = ["create_app", "run"]
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Run the PokerSense local server")
-    parser.add_argument("--window-title", default=DEFAULT_WINDOW_TITLE)
     parser.add_argument(
-        "--window-index",
-        type=int,
-        help="visible same-title window index from tools/list_windows.py",
+        "--device-serial",
+        default=DEFAULT_DEVICE_SERIAL,
+        help="ADB serial from `adb devices`; auto is allowed for one device",
     )
     parser.add_argument("--port", type=int, default=8765)
     args = parser.parse_args()
-    run(port=args.port, window_title=args.window_title, window_index=args.window_index)
+    run(port=args.port, device_serial=args.device_serial)

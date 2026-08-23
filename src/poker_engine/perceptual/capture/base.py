@@ -105,10 +105,11 @@ class CaptureError(Exception):
 
 @dataclass(frozen=True)
 class CaptureTarget:
-    """What window/region to capture.
+    """What visual source to capture.
 
-    ``window_id`` is a stable string identifier (not a raw HWND number), so the
-    same table can be re-located after a window is reopened.
+    ``window_id`` is the backend-specific stable identifier: a window title for
+    desktop backends or an ADB serial for Android capture.  The historical name
+    is retained to avoid changing the frozen capture contract.
     """
 
     window_id: str
@@ -130,7 +131,7 @@ class CaptureTarget:
 
 
 class CaptureService:
-    """Abstract capture backend.
+    """Abstract visual-source capture backend.
 
     ``frame_seq`` is assigned internally and increases strictly monotonically
     within a session (never derived from wall-clock time, never caller-supplied).

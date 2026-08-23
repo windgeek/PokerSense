@@ -17,7 +17,7 @@ _HERO = ("QD", "TS")
 
 
 def _build_table_frame_image():
-    """A full-size window frame carrying real card art at real coordinates.
+    """A 1440x2560 ADB frame carrying real card art at calibrated coordinates.
 
     Assembled rather than committed as a screenshot: a raw capture of a live
     table also contains browser chrome, bookmarks and another player's
@@ -32,9 +32,10 @@ def _build_table_frame_image():
     from poker_engine.perceptual.vision.card_layout import hero_layout_from_dict
     from poker_engine.perceptual.vision.table_map import TableMap
 
-    table_map = TableMap.from_json(
-        (_REPO_ROOT / "configs" / "platform" / "wepoker__h5_2max.json").read_text()
-    )
+    table_map = TableMap.from_json((
+        _REPO_ROOT / "configs" / "platform"
+        / "wepoker_android__ldplayer_portrait_1440x2560.json"
+    ).read_text())
     width, height = table_map.reference_size
     # Table felt, sampled from a real capture.
     image = np.full((height, width, 3), (74, 110, 61), dtype=np.uint8)
@@ -42,8 +43,8 @@ def _build_table_frame_image():
     hero_roi = next(r for r in table_map.rois if r.kind.value == "hero_cards")
     hero_layout = hero_layout_from_dict(
         json.loads(
-            (_REPO_ROOT / "configs" / "vision" / "wepoker" / "hero_slot_layout.json")
-            .read_text()
+            (_REPO_ROOT / "configs" / "vision" / "wepoker_android"
+             / "hero_slot_layout.json").read_text()
         )
     )
     rx, ry = int(hero_roi.x * width), int(hero_roi.y * height)
@@ -52,7 +53,9 @@ def _build_table_frame_image():
         card = cv2.imread(str(_CARD_FIXTURES / f"{label}.png"))
         assert card is not None, f"card fixture missing: {label}"
         x0, y0 = rx + int(sub.x * rw), ry + int(sub.y * rh)
-        image[y0:y0 + card.shape[0], x0:x0 + card.shape[1]] = card
+        target_w, target_h = int(sub.width * rw), int(sub.height * rh)
+        card = cv2.resize(card, (target_w, target_h))
+        image[y0:y0 + target_h, x0:x0 + target_w] = card
     return image
 
 
@@ -83,14 +86,16 @@ def live_analysis():
     frame = Frame(
         frame_seq=0,
         timestamp=datetime(2026, 8, 20, tzinfo=timezone.utc),
-        window_id="WePoker-H5",
-        window_rect=WindowRect(0, 34, width, height),
+        window_id="emulator-5556",
+        window_rect=WindowRect(0, 0, width, height),
         image=image,
         width=width,
         height=height,
     )
     table_map, vision = load_calibration()
-    measured = load_measured_calibration(_REPO_ROOT / "configs" / "vision" / "wepoker")
+    measured = load_measured_calibration(
+        _REPO_ROOT / "configs" / "vision" / "wepoker_android"
+    )
     orchestrator = ApplicationOrchestrator(
         StateEngine(), InMemoryHandMemory(), build_confidence_gate(measured)
     )

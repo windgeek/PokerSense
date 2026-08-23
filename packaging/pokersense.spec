@@ -39,7 +39,7 @@ a = Analysis(
     binaries=[],
     datas=[
         (str(REPO_ROOT / "ui"), "ui"),
-        # Live capture loads platform ROI calibration and card-glyph templates
+        # ADB live capture loads Android ROI calibration and shared card glyphs
         # at runtime. These must travel with the frozen app, not just exist in
         # the source checkout used to create it.
         (str(REPO_ROOT / "configs"), "configs"),
@@ -85,7 +85,7 @@ if sys.platform == "darwin":
         info_plist={
             "CFBundleShortVersionString": "0.1.11",
             "NSHighResolutionCapable": True,
-            # Screen Recording is requested at first-capture time by macOS
-            # itself (TCC), not declarable via Info.plist alone.
+            # macOS packaging remains a development convenience; the product
+            # target is Windows LDPlayer over ADB.
         },
     )

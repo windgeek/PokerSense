@@ -3,7 +3,7 @@
 [简体中文](README.zh-CN.md) | **English**
 
 PokerSense is a real-time Texas Hold'em training companion for authorized,
-self-hosted games. It captures a supported table and displays analysis in a
+self-hosted games. It reads a table from LDPlayer over ADB and displays analysis in a
 separate window. The current build recognizes hero cards and reports preflop
 equity; the v0.3 target adds explainable action frequencies, sizes, EVs, and
 confidence.
@@ -14,14 +14,13 @@ environment is a private table with friends, coaching, and deliberate practice.
 
 ## Current support
 
-The current desktop release is calibrated for the hero-card area of a WePoker
-H5 heads-up table.
+The current `main` target is **WePoker Android in portrait LDPlayer**. H5 is no
+longer the primary product path.
 
 | Feature | Availability |
 |---|---|
-| macOS and Windows desktop builds | Available from [GitHub Releases](https://github.com/windgeek/PokerSense/releases) |
-| Screen capture and live companion window | Available |
-| Hero-card recognition for WePoker H5 | Calibrated |
+| Windows LDPlayer capture over ADB | Implemented; reads emulator pixels independently of host-window position, occlusion, and DPI |
+| WePoker Android 1440×2560 portrait hero cards | Calibrated |
 | Equity calculation | Available; preflop hero equity against a random range |
 | English and Simplified Chinese UI | Available; preference persists across restarts |
 | Board cards, pot and street | Not yet calibrated; shown as unavailable |
@@ -32,51 +31,48 @@ When a newly dealt pair of hero cards is confirmed in consecutive frames,
 PokerSense starts a new hand automatically. A transient frame during a deal is
 not used as a state update.
 
-## Install
+The Android calibration used 66 deduplicated full-resolution ADB frames from
+two LDPlayer instances. Fifty-eight visible-hand frames covering 23 distinct
+hero hands read correctly; all eight login, transition, menu, or no-card frames
+abstained. Correlated temporal repeats are not counted as independent accuracy
+samples.
 
-Download the latest installer from [GitHub Releases](https://github.com/windgeek/PokerSense/releases):
+## Release status
 
-- macOS: `PokerSense-macos.dmg`
-- Windows: `PokerSense-Setup.exe`
+The published v0.1.11 installers still use the legacy H5 path and do not contain
+this Android/ADB change. The Android path is currently on `main`; a new installer
+will be published after real LDPlayer integration and Windows packaging checks.
 
-macOS asks for Screen Recording permission when capture is first needed. Grant
-it to PokerSense in **System Settings → Privacy & Security → Screen Recording**,
-then return to the app. The permission is tied to the installed application;
-replacing or rebuilding the app can require granting it again.
+## Use with LDPlayer
 
-Windows does not show a Screen Recording permission prompt. PokerSense uses
-the local Windows desktop-capture APIs directly.
-
-## Use with WePoker H5
-
-1. Open the WePoker H5 table and keep it visible.
-2. Open PokerSense and grant Screen Recording permission if requested.
-3. Keep the table on the current macOS Space while PokerSense is reading it.
-4. Check the status line in the companion window before relying on a reading.
+1. Run WePoker Android in a 1440×2560 portrait LDPlayer instance and enable ADB.
+2. Run `adb devices` and note the target serial, such as `emulator-5556`.
+3. If `adb.exe` is not on PATH, point `POKERSENSE_ADB_PATH` to LDPlayer's copy.
+4. Start with `make run-desktop ARGS="--device-serial emulator-5556"`.
 
 Only the hero-card area has been measured for this platform. The displayed
 equity therefore reflects the recognized hero hand before the flop, against a
 random opponent range. It is not a full table-state analysis.
 
-If more than one visible window has the title `WePoker-H5`, PokerSense does not
-choose one silently. For development use, list the windows and select an index:
+With exactly one authorized ADB device, the serial may be omitted. With multiple
+instances PokerSense fails closed and lists the serials instead of choosing one.
 
 ```bash
-./.venv/bin/python tools/list_windows.py --title WePoker-H5
-make run-desktop ARGS="--window-index 0"
+adb devices
+make run-desktop ARGS="--device-serial emulator-5556"
 ```
 
-On Windows, browser-added title suffixes such as ` - Google Chrome` are
-handled automatically; PokerSense matches the stable page title rather than a
-specific browser name.
-
-The index follows the current window order. Run the command again after moving,
-reopening, or switching windows.
+ADB returns the emulator framebuffer, so moving, scaling, occluding, or
+minimizing the host window does not move the ROIs. A different resolution,
+landscape mode, or Android UI version still requires separate calibration;
+Android and H5 coordinates are not interchangeable.
 
 ## Privacy
 
-Captured frames are processed in memory and discarded after recognition.
+ADB frames are processed in memory and discarded after recognition.
 PokerSense does not keep screenshots, video, or a frame history on disk.
+Private calibration captures are excluded from GitHub and packages; only a
+small, redacted, labeled regression set needs long-term retention.
 
 The only persisted setting is the interface language:
 
@@ -116,11 +112,11 @@ loop is in `src/poker_engine/realtime/`; platform-specific calibration is under
 ## Recognition and calibration
 
 PokerSense uses OpenCV template matching and a per-platform layout map. The
-WePoker H5 hero-card recognizer is measured against held-out real captures;
+WePoker Android hero-card geometry and confidence are measured on real ADB frames;
 details and source calibration data are in:
 
-- [`configs/platform/wepoker__h5_2max.json`](configs/platform/wepoker__h5_2max.json)
-- [`configs/vision/wepoker/calibration.json`](configs/vision/wepoker/calibration.json)
+- [`configs/platform/wepoker_android__ldplayer_portrait_1440x2560.json`](configs/platform/wepoker_android__ldplayer_portrait_1440x2560.json)
+- [`configs/vision/wepoker_android/calibration.json`](configs/vision/wepoker_android/calibration.json)
 - [`docs/vision-engine.md`](docs/vision-engine.md)
 
 Fields without their own calibration are reported as unavailable rather than
@@ -160,7 +156,7 @@ For detailed subsystem notes, see [`docs/`](docs/).
 
 ## Roadmap
 
-1. **M1 — trustworthy heads-up state:** calibrate board, pot, stacks, actor,
+1. **M1 — trustworthy Android table state:** calibrate board, pot, stacks, seats, dealer, actor,
    and actions; add temporal consensus, betting legality, hand boundaries, and
    chip conservation.
 2. **M2 — explainable baseline advice:** add `DecisionContext`, Bayesian combo

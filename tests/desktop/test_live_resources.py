@@ -12,4 +12,6 @@ def test_resource_root_uses_pyinstaller_bundle_directory(monkeypatch, tmp_path):
 
 def test_source_resource_root_contains_committed_calibration():
     root = live._resource_root()
-    assert (root / "configs" / "vision" / "wepoker" / "calibration.json").is_file()
+    assert (
+        root / "configs" / "vision" / "wepoker_android" / "calibration.json"
+    ).is_file()

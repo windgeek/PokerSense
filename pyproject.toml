@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "poker-engine"
 version = "0.1.11"
-description = "Poker Intelligence Engine - single-table Texas Hold'em AI analysis system"
+description = "PokerSense - Android table training companion and analysis engine"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 license = { text = "Proprietary" }
@@ -25,9 +25,8 @@ dev = [
     "flake8",
     "httpx",
 ]
-# Real screen capture backends for the perceptual layer (Windows: mss +
-# user32; macOS: pyobjc Quartz). CI and pure-unit tests use FakeBackend and
-# do not need either.
+# Legacy desktop-window capture backends. Production Android capture uses the
+# ADB executable and has no additional Python dependency.
 perceptual = [
     "mss>=9.0",
     "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
