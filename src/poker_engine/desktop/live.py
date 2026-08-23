@@ -73,9 +73,15 @@ from poker_engine.perceptual.vision.engine import VisionEngine
 from poker_engine.perceptual.vision.errors import TableMapError
 from poker_engine.perceptual.vision.street_detector import TemplateStreetDetector
 from poker_engine.perceptual.vision.table_map import TableMap
-from poker_engine.realtime.analysis import RealtimeAnalysis
 from poker_engine.realtime.pipeline import RealtimePipeline
 from poker_engine.state_engine.engine import StateEngine
+from poker_engine.strategy.contracts import GameConfig, GameType
+from poker_engine.strategy.orchestration import StrategyOrchestrator
+from poker_engine.strategy.router import StrategyRouter
+
+from .errors import LiveCaptureError
+from .serialize import DesktopFrame
+from .strategy_live import LiveStrategySession
 
 
 def _resource_root() -> Path:
@@ -90,10 +96,6 @@ _REPO_ROOT = _resource_root()
 DEFAULT_PLATFORM = "wepoker_android"
 DEFAULT_LAYOUT = "ldplayer_portrait_1440x2560"
 DEFAULT_DEVICE_SERIAL = os.environ.get("POKERSENSE_ADB_SERIAL", "auto")
-
-
-class LiveCaptureError(RuntimeError):
-    """A live capture problem the user can act on (ADB, device, or layout)."""
 
 
 def build_capture_backend() -> CaptureService:
@@ -347,7 +349,7 @@ def build_pipeline(
 async def live_analysis_stream(
     device_serial: str = DEFAULT_DEVICE_SERIAL,
     interval_seconds: float = 1.0,
-) -> AsyncIterator[RealtimeAnalysis]:
+) -> AsyncIterator[DesktopFrame]:
     """Yield fresh analysis while the selected ADB device is available.
 
     Capture and recognition are CPU-bound and run off the event loop, so the
@@ -363,6 +365,21 @@ async def live_analysis_stream(
         raise LiveCaptureError(
             f"capture engine initialization failed: {exc}"
         ) from exc
+    # Android recognition has not yet calibrated actor, stack, or action-line
+    # inputs.  Keep the strategy session wired, but with no provider it must
+    # emit an auditable ABSTAIN rather than inventing an action.
+    strategy_session = LiveStrategySession(
+        StrategyOrchestrator(StrategyRouter()),
+        GameConfig(
+            variant="NLHE",
+            game_type=GameType.CASH,
+            max_seats=2,
+            dealt_player_count=2,
+            small_blind=ChipAmount("1"),
+            big_blind=ChipAmount("2"),
+            minimum_chip=ChipAmount("1"),
+        ),
+    )
     while True:
         try:
             step = await asyncio.to_thread(pipeline.step)
@@ -371,7 +388,7 @@ async def live_analysis_stream(
         except Exception as exc:
             raise LiveCaptureError(f"capture engine failed: {exc}") from exc
         if step is not None:
-            yield step.analysis
+            yield strategy_session.frame(step.analysis, pipeline.current_state())
         await asyncio.sleep(interval_seconds)
 
 

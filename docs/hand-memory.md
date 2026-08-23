@@ -29,6 +29,7 @@ Hand Memory 负责「可靠地记住一手牌从开始到结束发生过什么�
 - **Version monotonicity**：`new_version > latest_version`（严格递增，**允许跳号**，不强制 +1 —— 冻结架构的 PokerState 只要求 `>= 0`）。
 - **Hand isolation**：不同 `hand_id` 的数据绝不串手。
 - **Replayable**：`states()` / `events()` 输出有序快照/事件，供未来 Replay 使用（本任务不实现真正的 State Replay Engine）。
+- **Atomic transition**：一个 canonical state 与其全部 events 要么一起提交，要么都不提交；确认切手时旧手完成与 successor 创建也必须一起成功或一起失败。
 - **No database**：第一版纯内存。
 
 ---
@@ -58,6 +59,9 @@ Hand Memory 负责「可靠地记住一手牌从开始到结束发生过什么�
 - `event.state_version` 必须对应当前 hand 中**已经存在**的 state snapshot（即 `get_state(hand_id, version) is not None`），**不是**只判断 `<= latest_version`（因为允许跳号）。
 - 因此 Task 2 固定提交顺序：`record_state(new_state) → record_event(event)`，不实现 event-first buffering。
 
+生产 Orchestrator 不再逐项调用上述低层 API，而调用 `record_transition(state, events)`。
+该接口先验证 state/version/hand 以及所有 event 引用，再一次性追加，避免中间失败形成只有 state、没有 event 的半写记录。
+
 ## Idempotency
 
 - `record_state`：相同 version + 相同 state → no-op；相同 version + 不同 state → `HandConflictError`。
@@ -83,9 +87,15 @@ Hand Memory 负责「可靠地记住一手牌从开始到结束发生过什么�
 - `players` 取 `latest_state.players`（最终参与者快照）。
 - 通过正式 `HandHistory` constructor 构造（不 bypass invariant）。
 
+确认新手牌边界时使用 `replace_active_hand(...)`：先验证 `HAND_END`、最新 state version、
+successor hand_id、时间顺序并构造完整 `HandHistory`，全部成功后才同时完成旧手和创建新 active hand。
+已有 successor、错误事件或时间无效时，旧手的 states/events/history/active identity 保持不变。
+
 ## replay boundary
 
-本任务只暴露 `states()` / `events()`，不新增 `get_replay` / `HandReplayData`。真正的 Replay Engine 属未来任务。
+HandMemory 只暴露 `states()` / `events()`，不新增 `get_replay` / `HandReplayData`，也不从事件流重建
+状态。`poker_engine.replay` 是独立的 Capture Replay 验收器：从 hash-pinned 原始帧或稳定 Observation
+重新执行 Recognition→State/Event 并比较预期；它不改变 HandMemory 的 event-sourcing boundary。
 
 ## persistence boundary
 

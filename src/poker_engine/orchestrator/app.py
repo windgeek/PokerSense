@@ -13,6 +13,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 from poker_engine.confidence.gate import ConfidenceGate, ConfidenceGateResult
+from poker_engine.core._freeze import utc_now
+from poker_engine.core.events import EventType, StateEvent
 from poker_engine.core.hand import HandHistory, HandSummary
 from poker_engine.core.observation import RawObservation
 from poker_engine.core.state import PokerState, StateContext
@@ -52,6 +54,7 @@ class ApplicationOrchestrator:
         # HandMemory is a typing.Protocol (structural type), not a runtime-checkable
         # class. Do a duck-type check on the methods the orchestrator relies on.
         for attr in ("start_hand", "record_state", "record_event",
+                     "record_transition", "replace_active_hand",
                      "complete_hand", "latest_state", "active_hand_id"):
             if not hasattr(hand_memory, attr):
                 raise TypeError(
@@ -121,13 +124,26 @@ class ApplicationOrchestrator:
         if initial_state.hand_id == active_hand_id:
             raise OrchestratorError("successor hand_id must differ from active hand")
 
-        history = self.complete_hand(
-            active_hand_id,
-            HandSummary(final_pot=previous_state.pot, winners=()),
-            ended_at=ended_at,
+        boundary_time = ended_at or started_at or utc_now()
+        boundary_event = StateEvent(
+            event_type=EventType.HAND_END,
+            hand_id=active_hand_id,
+            state_version=previous_state.state_version,
+            payload={
+                "reason": "confirmed_hand_boundary",
+                "successor_hand_id": initial_state.hand_id,
+                "settled": False,
+            },
+            timestamp=boundary_time,
+            source="application_orchestrator",
         )
-        self.start_hand(initial_state, started_at=started_at)
-        return history
+        return self._hand_memory.replace_active_hand(
+            initial_state,
+            HandSummary(final_pot=previous_state.pot, winners=()),
+            boundary_event,
+            ended_at=boundary_time,
+            started_at=boundary_time,
+        )
 
     # ------------------------------------------------------------------ pipeline
 
@@ -177,9 +193,7 @@ class ApplicationOrchestrator:
         # 4. Persist only a successful material change.
         persisted = False
         if result.changed and result.validation.is_valid:
-            self._hand_memory.record_state(result.state)
-            for event in result.events:
-                self._hand_memory.record_event(event)
+            self._hand_memory.record_transition(result.state, result.events)
             persisted = True
 
         return OrchestrationResult(

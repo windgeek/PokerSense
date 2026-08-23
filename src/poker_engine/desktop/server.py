@@ -26,8 +26,9 @@ from starlette.responses import Response
 
 from poker_engine.realtime.analysis import RealtimeAnalysis
 
-from .live import DEFAULT_DEVICE_SERIAL, LiveCaptureError, live_analysis_stream
-from .serialize import analysis_to_dict
+from .errors import LiveCaptureError
+from .live import DEFAULT_DEVICE_SERIAL, live_analysis_stream
+from .serialize import DesktopFrame, desktop_frame_to_dict
 from .settings import load_settings, save_language
 
 
@@ -46,7 +47,8 @@ def _resolve_ui_dir() -> Path:
 
 _UI_DIR = _resolve_ui_dir()
 
-AnalysisStreamFactory = Callable[[], AsyncIterator[RealtimeAnalysis]]
+AnalysisFrame = RealtimeAnalysis | DesktopFrame
+AnalysisStreamFactory = Callable[[], AsyncIterator[AnalysisFrame]]
 
 
 class _SettingsPayload(BaseModel):
@@ -71,7 +73,7 @@ class _NoCacheStaticFiles(StaticFiles):
 _RETRY_SECONDS = 3.0
 
 
-def _default_stream() -> AsyncIterator[RealtimeAnalysis]:
+def _default_stream() -> AsyncIterator[AnalysisFrame]:
     return live_analysis_stream(DEFAULT_DEVICE_SERIAL)
 
 
@@ -95,8 +97,8 @@ def create_app(stream_factory: AnalysisStreamFactory = _default_stream) -> FastA
         try:
             while True:
                 try:
-                    async for analysis in stream_factory():
-                        await websocket.send_json(analysis_to_dict(analysis))
+                    async for frame in stream_factory():
+                        await websocket.send_json(desktop_frame_to_dict(frame))
                 except LiveCaptureError as exc:
                     await websocket.send_json({"error": str(exc)})
                     await asyncio.sleep(_RETRY_SECONDS)
@@ -118,7 +120,7 @@ def run(
     port: int = 8765,
     device_serial: str = DEFAULT_DEVICE_SERIAL,
 ) -> None:
-    def stream() -> AsyncIterator[RealtimeAnalysis]:
+    def stream() -> AsyncIterator[DesktopFrame]:
         return live_analysis_stream(device_serial)
 
     import uvicorn

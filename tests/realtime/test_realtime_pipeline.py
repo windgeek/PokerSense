@@ -44,7 +44,9 @@ def _build_pipeline(
         InMemoryHandMemory(),
         confidence_gate=relaxed_confidence_gate(),
     )
-    orch.start_hand(initial_state(hand_id="h1"))
+    orch.start_hand(
+        initial_state(hand_id="h1"), started_at=frames[0].timestamp
+    )
     source = SyntheticFrameSource(tuple(frames))
     return RealtimePipeline(
         frame_source=source,

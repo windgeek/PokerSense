@@ -54,6 +54,9 @@ Thumbs.db
 # Workspace data / assistant memory (not product code)
 .workbuddy/
 
+# Local upstream research checkouts (not distributed with PokerSense)
+.upstream/
+
 # Review artifacts (temporary acceptance packages)
 task-*/
 task-*.zip

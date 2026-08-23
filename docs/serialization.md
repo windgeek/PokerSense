@@ -155,3 +155,43 @@ deserialize(type_, data) -> obj
 obj -> serialize -> json.dumps -> json.loads -> deserialize -> equivalent obj
 ```
 holds for every supported domain object, with money precision preserved exactly.
+
+## Strategy schema v1
+
+Target-architecture `DecisionContext` and `Advice` use the explicit
+`poker_engine.strategy.serialization` module:
+
+```python
+strategy_serialize(value) -> dict
+strategy_deserialize(type_, payload) -> DecisionContext | Advice
+```
+
+The strategy envelope has `schema_version=1` and a stable `type`. Money and
+probabilities remain decimal strings. The existing core schema remains at v1;
+legacy `RequestContext` payloads that omit the additive `expires_at` and
+`deadline_ms` fields continue to deserialize with `None` defaults. Advice
+`action_options` is also additive: new payloads preserve each source action and
+total-street size frequency, while older schema-v1 Advice without the field
+deserializes with an empty option tuple. `confidence_factors` and
+`missing_confidence_factors` are additive audit fields; older payloads keep the
+legacy scalar confidence with empty factor metadata. `evidence_chain_id`,
+`evidence_complete`, and `missing_evidence` are also additive; older schema-v1
+Advice loads without a structured chain while new payloads round-trip the
+evidence audit result. `input_provenance` is an additive per-field source and
+quality record used by the Live Coach UI to distinguish Vision, manual,
+configuration, derived, and inferred inputs; older Advice defaults it to an
+empty tuple. `match_dimensions` is an additive audit list for interpolated
+strategy results; every item preserves the requested value, matched value,
+distance, and allowed maximum distance. Older exact/heuristic Advice without
+the field still loads with an empty tuple, while a newly constructed
+`INTERPOLATED` candidate is invalid unless it supplies at least one dimension.
+`gate_results` is another additive Advice audit list. New Advice records the
+built-in and caller-supplied decision gates as `PASS`, `FAIL`, or `SKIPPED`;
+older schema-v1 payloads deserialize with no gate audit. A `READY` Advice with
+any failed gate is invalid even when loaded or reconstructed outside the
+builder.
+
+The desktop wire uses an atomic `DesktopFrame(RealtimeAnalysis, Advice?)`.
+`StateSnapshot` carries `hand_id + state_version`; serialization converts a
+mismatched or expired Advice to `STALE` and removes actions before it reaches
+JavaScript. Legacy analysis-only streams remain accepted.
