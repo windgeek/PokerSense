@@ -367,10 +367,10 @@ def test_slot_stack_action_source_match():
         hero_slots=[render_card("A", "S"), render_card("K", "D")],
     )
     obs = eng.process(_frame(frame_img), tm)
-    # slot_stack field source -> "amount"
+    # slot_stack field source -> independently calibrated "stack"
     for s in obs.slot_stacks:
-        assert s.field.source.startswith("amount:v")
-        assert s.field.evidence["recognizer_name"] == "amount"
+        assert s.field.source.startswith("stack:v")
+        assert s.field.evidence["recognizer_name"] == "stack"
     # slot_action field source -> "action"
     for s in obs.slot_actions:
         assert s.field.source.startswith("action:v")

@@ -24,7 +24,7 @@ FIELD_NAMES = (
     "dealer_pos",
     "actor",
 )
-SLOT_FIELD_NAMES = ("slot_stacks", "slot_actions")
+SLOT_FIELD_NAMES = ("slot_stacks", "slot_actions", "slot_occupancies")
 ALL_FIELD_NAMES = FIELD_NAMES + SLOT_FIELD_NAMES
 
 

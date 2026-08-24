@@ -72,7 +72,7 @@ def live_analysis():
         _seed_state,
         build_confidence_gate,
         load_calibration,
-        load_measured_calibration,
+        load_measured_calibrations,
     )
     from poker_engine.memory.hand_memory import InMemoryHandMemory
     from poker_engine.orchestrator import ApplicationOrchestrator
@@ -93,7 +93,7 @@ def live_analysis():
         height=height,
     )
     table_map, vision = load_calibration()
-    measured = load_measured_calibration(
+    measured = load_measured_calibrations(
         _REPO_ROOT / "configs" / "vision" / "wepoker_android"
     )
     orchestrator = ApplicationOrchestrator(
@@ -119,11 +119,13 @@ def test_equity_is_computed_for_the_recognized_hand(live_analysis):
     assert 0.0 <= equity.tie_rate < 1.0
 
 
-def test_uncalibrated_fields_stay_unknown(live_analysis):
-    """Board/pot/street have no measured ROIs, so they must not be claimed."""
+def test_calibrated_and_uncalibrated_fields_are_separated(live_analysis):
+    """Android board/street are measured; remaining table fields stay closed."""
     status = dict(live_analysis.confidence.field_status)
     assert status["hero_cards"] == "valid"
-    for field in ("board_cards", "street", "pot", "stacks", "bet_size", "action"):
+    assert status["board_cards"] == "valid"
+    assert status["street"] == "valid"
+    for field in ("pot", "stacks", "bet_size", "action"):
         assert status[field] == "unknown", f"{field} claimed without calibration"
 
 

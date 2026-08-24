@@ -55,12 +55,15 @@ subject to canonical state is trustworthy
 |---|---|---|
 | Capture | ADB 直读雷电 Android framebuffer；多实例必须显式 serial | 设备重连、真实 ADB capture 延迟与掉线恢复测量 |
 | Hero cards | Android 1440×2560：58/58 可见帧正确，8/8 非手牌帧 abstain；23 个不同手牌 | 扩充独立设备、主题、分辨率与真实失败样本 |
-| Board / pot / street | 未做真实平台标定，生产中为 `UNKNOWN`；通用逐字段/逐 slot 多帧确认已接入 | 独立 ROI、真实校准和 capture replay |
-| State | 权威更新 hero/board/street/pot；目标层已有确定性 legal-action、side-pot、State→DecisionContext、hand-boundary、显式 slot→seat→candidate-state 映射，以及 hash-pinned raw-frame Replay runner/quality report | 采集并校准 WePoker actor/stack/action/dealer ROI 与 slot contract，用授权真实原始帧执行 Replay；未校准前 live 保持 UNKNOWN/ABSTAIN |
+| Board / street | Android 1440×2560 已独立标定；27/27 个人工复核稳定状态正确，动画/非法占位 fail closed | 扩充独立设备与授权 raw-frame Replay |
+| Pot | Android 总底池 ROI/OCR 已标定；22/22 个不同数值正确，25 个文字/遮罩/过渡负样本拒识 | 扩充桌型、边池标签与授权 Replay |
+| Seats / stacks / dealer | Android 8 槽 occupancy、筹码和 Dealer 已独立实测；版本化 mapping 把 visual slot 映射为 canonical seat 并按 Dealer 推导 2–8 人位置 | 补授权 raw Replay、独立设备和离桌/重入边界样本 |
+| Actor / actions / amounts | Hero 当前行动回合和逐槽 fold/check/call/bet/raise/all-in 已标定；完成动作按 glyph slot 确定 actor、持久字形去重，并只在 stack delta + pot 守恒时生成金额事件 | 对手当前计时圈、漏帧多动作、all-in/side-pot 用授权 Replay 验收 |
+| State | 权威更新 hero/board/street/pot/occupancy/stacks/dealer/positions，并把可证明的完成动作写入 canonical history；hand-boundary、legal-action、side-pot、slot→seat mapping 和 hash-pinned Replay 合同均已接入 | 用授权真实原始帧执行 release-eligible Replay；策略源不匹配时 live 保持 ABSTAIN |
 | Equity | 枚举、Monte Carlo、range equity、pot odds；目标层已有加权多人 pot-share、seeded MC/CI、canonical TTL/LRU cache 和 operation-budget 路由 | 大范围直接采样、真实 deadline 吞吐校准和持久化 cache |
 | Strategy | 多人 DecisionContext、Provider capability、Router、Advice、状态派生和 FakeProvider 回归闭环；未发布目标层新增可选 HU preflop Blueprint Adapter，以及固定来源/hash、仅覆盖明确 6/9 人 unopened 牌表的低置信度 Heuristic RFI Provider | 扩大 HU Golden 节点覆盖；接入人数精确匹配的 3–9 人 preflop DB、预解缓存、轻量策略、异步 resolver；不得把 6/9 heuristic 宣称为多人 GTO |
 | Opponent | `OpponentProfile` 契约；目标层已有受限 6/9 人 RFI 资产→concrete-combo 初始范围、blocker、贝叶斯更新、小样本收缩和多人联合组合枚举；不适用时返回 UNKNOWN 而非 random range | 扩展到逐一验证的 3–9 人位置/行动/stack 先验资产、实时事件接入和受约束模型 |
-| Output | 生产 live 已接入 `LiveStrategySession → StrategyOrchestrator → DesktopFrame`，支持 Advice/UI/WebSocket 的频率、尺度、EV、来源、证据和过期防闪回；当前真实输入不足时只输出 ABSTAIN | 完成 actor/stack/action-line 等真实标定并接入匹配的可发布策略资产，使声明场景可 READY |
+| Output | 生产 live 已接入 canonical action history → `LiveStrategySession → StrategyOrchestrator → DesktopFrame`，支持 Advice/UI/WebSocket 的频率、尺度、EV、来源、证据和过期防闪回；缺合格 Provider 时只输出 ABSTAIN | 接入匹配且可发布的多人策略资产，使声明场景可 READY |
 | Learning | 无 | 实际动作 → EV loss → 漏点 → 训练题 |
 
 ### 2.1 并行开发的集成边界

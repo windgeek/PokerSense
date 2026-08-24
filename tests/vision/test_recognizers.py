@@ -14,6 +14,7 @@ from poker_engine.perceptual.vision.action_recognizer import (
 from poker_engine.perceptual.vision.amount_recognizer import (
     DigitTemplateSet,
     TemplateAmountRecognizer,
+    segment_characters,
 )
 from poker_engine.perceptual.vision.corner_glyph_recognizer import (
     CornerGlyphCardRecognizer,
@@ -129,6 +130,31 @@ def test_amount_multi_char(text):
     r = rec.recognize(render_number(text))
     assert r.value is not None
     assert str(r.value) == text
+
+
+def test_amount_multi_char_white_on_dark():
+    def render(text):
+        width = max(50, 45 * len(text))
+        image = np.full((50, width, 3), (30, 80, 65), dtype=np.uint8)
+        cv2.putText(
+            image, text, (10, 39), cv2.FONT_HERSHEY_SIMPLEX,
+            1.2, (255, 255, 255), 2, cv2.LINE_AA,
+        )
+        return image
+
+    templates = DigitTemplateSet(
+        {
+            digit: segment_characters(render(digit))[0]
+            for digit in "0123456789"
+        },
+        version="dark-v1",
+    )
+    rec = TemplateAmountRecognizer(templates)
+
+    result = rec.recognize(render("790"))
+
+    assert result.value is not None
+    assert str(result.value) == "790"
 
 
 # ---------- action recognizer ----------

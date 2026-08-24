@@ -18,6 +18,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
+from poker_engine.core.events import StateEvent
 from poker_engine.core.observation import RawObservation
 from poker_engine.core.state import PokerState
 from poker_engine.orchestrator import ApplicationOrchestrator
@@ -224,6 +225,13 @@ class RealtimePipeline:
     def current_state(self) -> PokerState:
         """Return the canonical state backing the latest live analysis."""
         return self._latest_state()
+
+    def action_history(self) -> tuple[StateEvent, ...]:
+        """Return the active hand's canonical event stream."""
+        active = self._orchestrator._hand_memory.active_hand_id
+        if active is None:
+            return ()
+        return self._orchestrator._hand_memory.events(active)
 
 
 __all__ = ["RealtimePipeline", "PipelineStep"]

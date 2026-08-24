@@ -70,12 +70,28 @@ def _validate_threshold_value(value: Any, name: str) -> float:
 class ConfidenceGate:
     """Field-level confidence gate."""
 
-    def __init__(self, thresholds: Mapping[str, float] | None = None) -> None:
+    def __init__(
+        self,
+        thresholds: Mapping[str, float] | None = None,
+        *,
+        slot_thresholds: Mapping[str, float] | None = None,
+    ) -> None:
         if thresholds is None:
             resolved: dict[str, float] = dict(_FROZEN_THRESHOLDS)
         else:
             resolved = self._validate_thresholds(thresholds)
         self._thresholds = resolved
+        supplied_slot = dict(slot_thresholds or {})
+        unknown_slot = set(supplied_slot) - {"occupancy"}
+        if unknown_slot:
+            raise ConfidenceGateError(
+                f"unknown slot threshold field(s): {sorted(unknown_slot)}"
+            )
+        self._slot_thresholds = {
+            "occupancy": _validate_threshold_value(
+                supplied_slot.get("occupancy", 0.99), "occupancy"
+            )
+        }
 
     @staticmethod
     def _validate_thresholds(thresholds: Mapping[str, float]) -> dict[str, float]:
@@ -101,6 +117,10 @@ class ConfidenceGate:
     @property
     def thresholds(self) -> Mapping[str, float]:
         return MappingProxyType(self._thresholds)
+
+    @property
+    def slot_thresholds(self) -> Mapping[str, float]:
+        return MappingProxyType(self._slot_thresholds)
 
     def apply(self, observation: RawObservation) -> ConfidenceGateResult:
         if not isinstance(observation, RawObservation):
@@ -133,10 +153,18 @@ class ConfidenceGate:
             "slot_actions",
             blocked,
         )
+        slot_occupancies = self._gate_slots(
+            observation.slot_occupancies,
+            self._slot_thresholds["occupancy"],
+            "slot_occupancies",
+            blocked,
+        )
         if slot_stacks is not observation.slot_stacks:
             slot_replacements["slot_stacks"] = slot_stacks
         if slot_actions is not observation.slot_actions:
             slot_replacements["slot_actions"] = slot_actions
+        if slot_occupancies is not observation.slot_occupancies:
+            slot_replacements["slot_occupancies"] = slot_occupancies
 
         # Build the sanitized observation via dataclasses.replace (returns a new
         # object, never mutates input).

@@ -92,8 +92,8 @@ Replay 和 UI 验收同时完成，才算产品端到端闭环。
 
 | 工作流 | 当前已经提供 | 仍由该工作流完成 | 交给下游的稳定边界 | 完成证据 |
 |---|---|---|---|---|
-| 策略与状态（本分支） | 2–9 人状态、事件、Context、Equity、Provider/Router、Fast/Slow、Advice、拒答和训练合同 | 将 live 配置从固定 2-max 改为实际桌型；注册获准 Provider；把逐尺度频率加入 UI wire contract；补齐真实输入后的生产编排 | `RawObservation → PokerState/StateEvent[] → DecisionContext → DesktopFrame(advice)` | 策略回归、Provider Golden、真实 WPK E2E、版本化性能报告 |
-| WPK 识别（伙伴工作流） | Hero cards 识别可作为现有基线 | 完成窗口/布局身份、2–9 座位占用、dealer、actor、逐座位 stack、action/amount、pot、street、board 的候选值、证据、置信度和 UNKNOWN/CONFLICT；不得直接推导策略 | 每帧一个类型正确的 `RawObservation`；视觉 slot 只用 `slot_id`，由版本化 `PlatformSeatMapping` 映射到 seat | 授权 raw-frame Replay、逐字段 precision/recall、动画/漏帧/换手用例、layout/calibration hash |
+| 策略与状态（本分支） | 2–9 人状态、事件、Context、Equity、Provider/Router、Fast/Slow、Advice、拒答和训练合同；live 已按 occupancy 选择实际桌型并传入 canonical history | 注册获准 Provider；把逐尺度频率加入 UI wire contract；补齐真实输入后的生产编排 | `RawObservation → PokerState/StateEvent[] → DecisionContext → DesktopFrame(advice)` | 策略回归、Provider Golden、真实 WPK E2E、版本化性能报告 |
+| WPK 识别（伙伴工作流） | Android hero/board/street/pot、8 槽 occupancy/stack/dealer/action、Hero 当前 actor、版本化 mapping 和守恒动作重建 | 补授权 raw Replay、对手当前 actor、all-in/side-pot/漏帧多动作边界；不得直接推导策略 | 每帧一个类型正确的 `RawObservation`；视觉 slot 只用 `slot_id`，由版本化 `PlatformSeatMapping` 映射到 seat | 授权 raw-frame Replay、逐字段 precision/recall、动画/漏帧/换手用例、layout/calibration hash |
 | Live Coach UI（伙伴工作流） | 当前页面可消费 `DesktopFrame` 和基础 Advice view | 原子消费 analysis+Advice；只在 READY 展示动作；显示频率、尺度、EV 可用性、来源、版本、match、confidence、assumptions、evidence 和拒答原因；状态变化/过期立即隐藏旧动作 | WebSocket `DesktopFrame` JSON；不得从 Equity 自行生成动作，不得在前端重新解释策略 | READY/ABSTAIN/PARTIAL/STALE snapshot、Fast→Slow 顺序测试、过期/换手无闪回、真实窗口视觉验收 |
 | 联调（共同） | Synthetic/Mock 合同和无 OpenCV 测试已经存在 | 固定同一 WPK layout、calibration、Replay、Provider 和 UI build，跑通画面到建议；保存每层 identity 和时间戳 | `frame_seq + hand_id + state_version + request_id` 全链一致 | R6 报告、录屏/截图、机器可读输出、干净安装和权限记录 |
 
@@ -103,11 +103,11 @@ Replay 和 UI 验收同时完成，才算产品端到端闭环。
 | 输入域 | 必需输出 | 类型/语义 | 策略侧使用方式 | 当前 Gap |
 |---|---|---|---|---|
 | 帧与布局 | `frame_seq`、带时区 timestamp、window/layout identity | 单调帧号；窗口和布局版本可追溯 | temporal gap、Replay、mapping 选择 | layout identity 尚未进入完整 live 证据链 |
-| Hero/board | `hero_cards`、`board_cards` | `ObservationField[tuple[Card,...]]` | blocker、street/state、Equity | 只有 Hero 有真实标定 |
-| 街道与底池 | `street`、`pot` | `ObservationField[Street/ChipAmount]` | hand/street transition、pot odds、SPR | WPK ROI/OCR 未标定 |
-| 座位与位置 | seat occupancy、`dealer_pos` visual slot | 2–9 座位；dealer 是 slot，不是 canonical seat | 位置、行动顺序、player count | occupancy/dealer 真实识别未完成 |
-| 筹码 | `slot_stacks[]` | 每个 visual slot 的 `ChipAmount` | effective stack、to-call、事件金额和边池 | 多座位 OCR/动画稳定性未完成 |
-| 行动 | `actor`、`slot_actions[]`、`bet_size` | actor 表示刚完成动作的 visual slot；动作使用规范枚举；金额语义必须有证据 | 重建 fold/check/call/bet/raise/all-in 和完整 action history | actor/action/amount 尚无真实校准 |
+| Hero/board | `hero_cards`、`board_cards` | `ObservationField[tuple[Card,...]]` | blocker、street/state、Equity | Android Hero/board 已真实标定；发布级 raw Replay 待补 |
+| 街道与底池 | `street`、`pot` | `ObservationField[Street/ChipAmount]` | hand/street transition、pot odds、SPR | Android street/pot 已标定；发布级 raw Replay 待补 |
+| 座位与位置 | `slot_occupancies[]`、`dealer_pos` visual slot | 2–9 座位；视觉 slot 必须经版本化 mapping | 位置、行动顺序、player count | Android occupancy 272/272 稳定槽位正确；8 槽 mapping 已接入，授权 raw Replay 待补 |
+| 筹码 | `slot_stacks[]` | 每个 visual slot 的 `ChipAmount` | effective stack、to-call、事件金额和边池 | Android 8 槽 OCR 已标定并映射为 seat stack；遮挡/空座拒识 |
+| 行动 | `actor`、`slot_actions[]`、筹码/底池差额 | Android actor 表示当前轮到 Hero；完成动作 actor 来自 glyph slot；动作使用规范枚举 | 重建 fold/check/call/bet/raise/all-in 和 canonical history | Hero actor 33/33 且其余 201 帧拒识；glyph 已标定并去重，金额仅在 stack/pot 守恒时写入；对手当前 actor 与边界 Replay 待补 |
 | 字段质量 | confidence、source、evidence、timestamp、validation status | 每个字段独立，不使用单一总置信度代替 | provenance、硬拒答门、审计 | 需要真实阈值和冲突样本 |
 
 UI 工作流必须遵守以下显示矩阵；这是安全边界，不是样式建议。
@@ -119,9 +119,9 @@ UI 工作流必须遵守以下显示矩阵；这是安全边界，不是样式�
 | `ABSTAIN` | 隐藏 | 可用时单独显示 | 显示 gate/rejection reasons | 不保留上一帧 READY 动作 |
 | `STALE` | 隐藏 | 可显示当前帧自身数据 | 显示过期或 identity mismatch | 旧 Slow 结果不得闪回 |
 
-当前最关键的跨工作流 Gap 是：生产 `live.py` 仍固定 2-max 且 Router 未注册策略
-Provider；WPK 尚不能生成 actor/stack/action-line 等必需权威输入；UI wire contract 目前只
-输出动作总频率和尺度列表，尚未输出每个尺度各自的频率。三项分别由策略/集成、识别、
+当前最关键的跨工作流 Gap 是：Router 尚未注册可发布且与实际人数匹配的策略 Provider；Android
+识别/映射链仍需授权 raw-frame Replay 覆盖对手当前 actor、all-in/side-pot 和漏帧多动作；UI wire
+contract 目前只输出动作总频率和尺度列表，尚未输出每个尺度各自的频率。这些分别由策略、识别验收和
 策略输出合同负责，不能把其中任何一项作为 UI 层猜测逻辑实现。
 
 伙伴的可执行任务顺序、源码入口、字段示例和提交前清单见

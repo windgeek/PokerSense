@@ -7,12 +7,12 @@ the selected platform/layout contract maps it explicitly.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from types import MappingProxyType
 from typing import Mapping
 
-from poker_engine.core.enums import ActionType, PlayerStatus
+from poker_engine.core.enums import ActionType, PlayerStatus, Position
 from poker_engine.core.events import StateEvent
 from poker_engine.core.observation import RawObservation, ValidationStatus
 from poker_engine.core.state import PokerState, StateContext, ValidationResult
@@ -56,9 +56,12 @@ def _freeze_slot_map(value: Mapping[int, int], name: str) -> Mapping[int, int]:
 class PlatformSeatMapping:
     """Versioned visual geometry to canonical seat contract.
 
-    ``actor_slot_to_seat`` means the recognized actor marker identifies the
-    player whose action has just completed.  It does not identify the next
-    player to act.
+    ``actor_slot_to_seat`` maps whichever actor observation the selected
+    platform exposes.  With ``actor_observation_is_current=False`` it means
+    the player whose action just completed.  With the flag set, as in the
+    Android profile, it means the player currently facing a decision.  A
+    completed per-slot action glyph remains authoritative for the actor of
+    that completed action.
     """
 
     platform_id: str
@@ -68,6 +71,10 @@ class PlatformSeatMapping:
     action_slot_to_seat: Mapping[int, int]
     actor_slot_to_seat: Mapping[int, int]
     dealer_slot_to_seat: Mapping[int, int]
+    occupancy_slot_to_seat: Mapping[int, int] = field(
+        default_factory=lambda: MappingProxyType({})
+    )
+    actor_observation_is_current: bool = False
 
     def __post_init__(self) -> None:
         for name in ("platform_id", "layout_id", "version"):
@@ -81,10 +88,38 @@ class PlatformSeatMapping:
             "action_slot_to_seat",
             "actor_slot_to_seat",
             "dealer_slot_to_seat",
+            "occupancy_slot_to_seat",
         ):
             object.__setattr__(
                 self, name, _freeze_slot_map(getattr(self, name), name)
             )
+        if not isinstance(self.actor_observation_is_current, bool):
+            raise TypeError("actor_observation_is_current must be a bool")
+
+
+_POSITIONS_BY_COUNT: dict[int, tuple[Position, ...]] = {
+    2: (Position.BTN, Position.BB),
+    3: (Position.BTN, Position.SB, Position.BB),
+    4: (Position.BTN, Position.SB, Position.BB, Position.CO),
+    5: (Position.BTN, Position.SB, Position.BB, Position.UTG, Position.CO),
+    6: (
+        Position.BTN, Position.SB, Position.BB, Position.UTG,
+        Position.HJ, Position.CO,
+    ),
+    7: (
+        Position.BTN, Position.SB, Position.BB, Position.UTG,
+        Position.LJ, Position.HJ, Position.CO,
+    ),
+    8: (
+        Position.BTN, Position.SB, Position.BB, Position.UTG,
+        Position.UTG1, Position.LJ, Position.HJ, Position.CO,
+    ),
+    9: (
+        Position.BTN, Position.SB, Position.BB, Position.UTG,
+        Position.UTG1, Position.UTG2, Position.LJ, Position.HJ,
+        Position.CO,
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -136,7 +171,7 @@ def _resolve_actor_action(
 ) -> tuple[int | None, ActionType | None, CandidateStateMapping | None]:
     actor_seats: set[int] = set()
     actor_slot = _valid_value(observation.actor)
-    if actor_slot is not None:
+    if actor_slot is not None and not mapping.actor_observation_is_current:
         if actor_slot not in mapping.actor_slot_to_seat:
             return None, None, _invalid("unmapped_actor_slot")
         actor_seats.add(mapping.actor_slot_to_seat[actor_slot])
@@ -198,6 +233,123 @@ def _map_observed_stacks(
             return {}, "conflicting_stack_values"
         by_seat[seat] = value
     return by_seat, None
+
+
+def _map_occupancies(
+    observation: RawObservation,
+    mapping: PlatformSeatMapping,
+) -> tuple[dict[int, bool], str | None]:
+    by_seat: dict[int, bool] = {}
+    for slot in observation.slot_occupancies:
+        value = _valid_value(slot.field)
+        if value is None:
+            continue
+        if slot.slot_id not in mapping.occupancy_slot_to_seat:
+            return {}, "unmapped_occupancy_slot"
+        seat = mapping.occupancy_slot_to_seat[slot.slot_id]
+        if seat in by_seat and by_seat[seat] is not value:
+            return {}, "conflicting_occupancy_values"
+        by_seat[seat] = value
+    return by_seat, None
+
+
+def _position_players(
+    players: tuple,
+    dealer_seat: int,
+) -> tuple | None:
+    occupied = sorted(
+        player.seat for player in players
+        if player.status is not PlayerStatus.SITTING_OUT
+    )
+    if dealer_seat not in occupied or len(occupied) not in _POSITIONS_BY_COUNT:
+        return None
+    dealer_index = occupied.index(dealer_seat)
+    clockwise = occupied[dealer_index:] + occupied[:dealer_index]
+    positions = dict(zip(clockwise, _POSITIONS_BY_COUNT[len(occupied)]))
+    return tuple(replace(
+        player,
+        position=positions.get(player.seat, Position.UNKNOWN),
+        is_dealer=player.seat == dealer_seat,
+    ) for player in players)
+
+
+def map_snapshot_candidate(
+    previous: PokerState,
+    observation: RawObservation,
+    mapping: PlatformSeatMapping,
+) -> tuple[PokerState | None, tuple[str, ...]]:
+    """Merge non-event seat evidence without inventing an action.
+
+    Stack values initialize newly occupied seats. Once a seat is active, a
+    decrease is reserved for action reconstruction so a preceding frame cannot
+    consume the chip delta before its completed-action glyph stabilizes.
+    """
+    players_by_seat = {player.seat: player for player in previous.players}
+    occupancies, occupancy_error = _map_occupancies(observation, mapping)
+    if occupancy_error:
+        return None, (occupancy_error,)
+    stacks, stack_error = _map_observed_stacks(observation, mapping)
+    if stack_error:
+        return None, (stack_error,)
+    if (set(occupancies) | set(stacks)) - set(players_by_seat):
+        return None, ("mapped_seat_not_in_state",)
+
+    changed = False
+    updated = []
+    for player in previous.players:
+        occupied = occupancies.get(player.seat)
+        candidate = player
+        if occupied is False and player.status is not PlayerStatus.SITTING_OUT:
+            candidate = replace(
+                candidate,
+                position=Position.UNKNOWN,
+                status=PlayerStatus.SITTING_OUT,
+                has_cards=False,
+                is_dealer=False,
+            )
+        elif occupied is True and player.status in {
+            PlayerStatus.SITTING_OUT, PlayerStatus.UNKNOWN,
+        }:
+            candidate = replace(
+                candidate,
+                stack=stacks.get(player.seat, candidate.stack),
+                status=PlayerStatus.ACTIVE,
+                has_cards=True,
+            )
+        changed = changed or candidate != player
+        updated.append(candidate)
+
+    next_actor = previous.actor
+    if mapping.actor_observation_is_current:
+        actor_slot = _valid_value(observation.actor)
+        if actor_slot is None:
+            next_actor = None
+        elif actor_slot not in mapping.actor_slot_to_seat:
+            return None, ("unmapped_actor_slot",)
+        else:
+            next_actor = mapping.actor_slot_to_seat[actor_slot]
+        changed = changed or next_actor != previous.actor
+
+    dealer_slot = _valid_value(observation.dealer_pos)
+    if dealer_slot is not None:
+        if dealer_slot not in mapping.dealer_slot_to_seat:
+            return None, ("unmapped_dealer_slot",)
+        positioned = _position_players(
+            tuple(updated), mapping.dealer_slot_to_seat[dealer_slot]
+        )
+        if positioned is None:
+            return None, ("dealer_not_in_occupied_seats",)
+        changed = changed or positioned != tuple(updated)
+        updated = list(positioned)
+
+    if not changed:
+        return previous, ()
+    return replace(
+        previous,
+        state_version=previous.state_version + 1,
+        players=tuple(updated),
+        actor=next_actor,
+    ), ()
 
 
 def map_action_candidate(
@@ -302,7 +454,11 @@ def map_action_candidate(
             after_actor.committed_this_street.value,
         )),
         to_call=previous.to_call,
-        actor=previous.actor,
+        actor=(
+            mapping.actor_slot_to_seat.get(_valid_value(observation.actor))
+            if mapping.actor_observation_is_current
+            else previous.actor
+        ),
     )
     reconstruction: ActionReconstruction = reconstruct_action_event(
         previous,
@@ -345,6 +501,32 @@ class PlatformMappedStateEngine(StateEngine):
         if not isinstance(mapping, PlatformSeatMapping):
             raise TypeError("mapping must be a PlatformSeatMapping")
         self._mapping = mapping
+        self._action_baseline: dict[int, ActionType] | None = None
+        self._baseline_hand_id: str | None = None
+
+    def _new_action_observation(
+        self, previous_state: PokerState, observation: RawObservation
+    ) -> RawObservation:
+        current = {
+            slot.slot_id: slot.field.value
+            for slot in observation.slot_actions
+            if slot.field.validation_status is ValidationStatus.VALID
+            and slot.field.value is not None
+        }
+        if self._baseline_hand_id != previous_state.hand_id:
+            self._baseline_hand_id = previous_state.hand_id
+            self._action_baseline = current if previous_state.state_version == 0 else {}
+            if previous_state.state_version == 0:
+                return replace(observation, slot_actions=())
+        baseline = self._action_baseline or {}
+        new_slots = tuple(
+            slot for slot in observation.slot_actions
+            if slot.field.validation_status is ValidationStatus.VALID
+            and slot.field.value is not None
+            and baseline.get(slot.slot_id) != slot.field.value
+        )
+        self._action_baseline = current
+        return replace(observation, slot_actions=new_slots)
 
     def transition(
         self,
@@ -358,9 +540,38 @@ class PlatformMappedStateEngine(StateEngine):
             context.previous_state != previous_state
         ):
             return super().transition(previous_state, observation, context)
-        mapped = map_action_candidate(previous_state, observation, self._mapping)
+        action_observation = self._new_action_observation(
+            previous_state, observation
+        )
+        mapped = map_action_candidate(
+            previous_state, action_observation, self._mapping
+        )
         if mapped.status is CandidateMappingStatus.NO_ACTION:
-            return super().transition(previous_state, observation, context)
+            base = super().transition(previous_state, observation, context)
+            if not base.validation.is_valid:
+                return base
+            snapshot, errors = map_snapshot_candidate(
+                base.state, observation, self._mapping
+            )
+            if snapshot is None:
+                return StateTransitionResult(
+                    state=previous_state,
+                    events=(),
+                    validation=ValidationResult(
+                        is_valid=False, errors=errors, warnings=()
+                    ),
+                    changed=False,
+                )
+            if base.changed and snapshot != base.state:
+                snapshot = replace(
+                    snapshot, state_version=base.state.state_version
+                )
+            return StateTransitionResult(
+                state=snapshot,
+                events=base.events,
+                validation=base.validation,
+                changed=base.changed or snapshot != base.state,
+            )
         if mapped.status is not CandidateMappingStatus.EXACT:
             return StateTransitionResult(
                 state=previous_state,
@@ -385,4 +596,5 @@ __all__ = [
     "PlatformMappedStateEngine",
     "PlatformSeatMapping",
     "map_action_candidate",
+    "map_snapshot_candidate",
 ]

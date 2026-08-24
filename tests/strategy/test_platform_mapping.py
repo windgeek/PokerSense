@@ -103,6 +103,7 @@ def mapping():
         action_slot_to_seat={20: 0, 21: 1, 22: 2},
         actor_slot_to_seat={10: 0, 11: 1, 12: 2},
         dealer_slot_to_seat={40: 0, 41: 1, 42: 2},
+        occupancy_slot_to_seat={50: 0, 51: 1, 52: 2},
     )
 
 
@@ -131,6 +132,7 @@ def observation(
     dealer_slot=40,
     street=None,
     board=None,
+    occupancies=(),
 ):
     return RawObservation(
         frame_seq=101,
@@ -154,6 +156,10 @@ def observation(
         slot_actions=tuple(
             SlotObservation(slot, valid(value))
             for slot, value in sorted(action_slots)
+        ),
+        slot_occupancies=tuple(
+            SlotObservation(slot, valid(value))
+            for slot, value in sorted(occupancies)
         ),
     )
 
@@ -436,6 +442,102 @@ def test_mapped_engine_preserves_base_engine_for_non_action_frame(mapping):
         EventType.STREET_CHANGE,
         EventType.DEAL,
     ]
+
+
+def test_snapshot_maps_occupancy_stack_dealer_and_positions(mapping):
+    before = state(second=replace(
+        player(1),
+        stack=amount("0"),
+        position=Position.UNKNOWN,
+        status=PlayerStatus.SITTING_OUT,
+        has_cards=False,
+    ))
+    obs = observation(
+        actor_slot=None,
+        action=None,
+        stacks=((31, "75"),),
+        occupancies=((50, True), (51, True), (52, True)),
+    )
+    result = PlatformMappedStateEngine(mapping).transition(
+        before, obs, StateContext(before)
+    )
+    assert result.changed and result.validation.is_valid
+    seats = {item.seat: item for item in result.state.players}
+    assert seats[1].status is PlayerStatus.ACTIVE
+    assert seats[1].stack == amount("75")
+    assert [seats[index].position for index in range(3)] == [
+        Position.BTN, Position.SB, Position.BB,
+    ]
+
+
+def test_snapshot_marks_empty_seat_sitting_out(mapping):
+    before = state()
+    obs = observation(
+        actor_slot=None,
+        action=None,
+        dealer_slot=42,
+        occupancies=((50, True), (51, False), (52, True)),
+    )
+    result = PlatformMappedStateEngine(mapping).transition(
+        before, obs, StateContext(before)
+    )
+    seats = {item.seat: item for item in result.state.players}
+    assert seats[1].status is PlayerStatus.SITTING_OUT
+    assert not seats[1].has_cards
+    assert seats[2].position is Position.BTN
+    assert seats[0].position is Position.BB
+
+
+def test_persistent_action_glyph_is_emitted_once_after_live_baseline(mapping):
+    engine = PlatformMappedStateEngine(mapping)
+    current = replace(state(), state_version=0)
+    shown = observation(
+        actor_slot=None,
+        action=None,
+        action_slots=((20, ActionType.CHECK),),
+    )
+    first = engine.transition(current, shown, StateContext(current))
+    assert not first.changed and first.events == ()
+    repeated = engine.transition(current, shown, StateContext(current))
+    assert not repeated.changed and repeated.events == ()
+    hidden = observation(actor_slot=None, action=None, action_slots=())
+    engine.transition(current, hidden, StateContext(current))
+    appeared = engine.transition(current, shown, StateContext(current))
+    assert [event.event_type for event in appeared.events] == [EventType.CHECK]
+
+
+def test_current_actor_semantics_promote_hero_without_stealing_action_actor(
+    mapping,
+):
+    current_mapping = replace(mapping, actor_observation_is_current=True)
+    before = state()
+    hero_turn = observation(actor_slot=12, action=None)
+    snapshot = PlatformMappedStateEngine(current_mapping).transition(
+        before, hero_turn, StateContext(before)
+    )
+    assert snapshot.state.actor == 2
+
+    opponent_action = observation(
+        actor_slot=12,
+        action=None,
+        action_slots=((20, ActionType.CHECK),),
+    )
+    result = map_action_candidate(before, opponent_action, current_mapping)
+    assert result.status is CandidateMappingStatus.EXACT
+    assert result.actor_seat == 0
+    assert result.state.actor == 2
+
+    no_current_actor = observation(
+        actor_slot=None,
+        action=None,
+        action_slots=((20, ActionType.CHECK),),
+    )
+    cleared = map_action_candidate(
+        replace(before, actor=2), no_current_actor, current_mapping
+    )
+    assert cleared.status is CandidateMappingStatus.EXACT
+    assert cleared.actor_seat == 0
+    assert cleared.state.actor is None
 
 
 def test_orchestrator_persists_mapped_state_and_event_atomically(mapping):

@@ -227,10 +227,16 @@ def _slot_map(value: object, name: str) -> dict[int, int]:
 def _parse_mapping(data: object, platform_id: str, layout_id: str):
     if not isinstance(data, dict):
         raise CaptureReplayError("seat_mapping must be an object")
+    # Schema-v1 manifests predate explicit occupancy mapping. Treat its
+    # absence as an empty mapping while still rejecting every unknown key.
+    data = dict(data)
+    data.setdefault("occupancy_slot_to_seat", {})
+    data.setdefault("actor_observation_is_current", False)
     _expect_keys(data, {
         "platform_id", "layout_id", "version", "stack_slot_to_seat",
         "action_slot_to_seat", "actor_slot_to_seat",
-        "dealer_slot_to_seat",
+        "dealer_slot_to_seat", "occupancy_slot_to_seat",
+        "actor_observation_is_current",
     }, "seat_mapping")
     mapping_platform = _required_str(data, "platform_id")
     mapping_layout = _required_str(data, "layout_id")
@@ -244,6 +250,11 @@ def _parse_mapping(data: object, platform_id: str, layout_id: str):
         _slot_map(data.get("action_slot_to_seat"), "action_slot_to_seat"),
         _slot_map(data.get("actor_slot_to_seat"), "actor_slot_to_seat"),
         _slot_map(data.get("dealer_slot_to_seat"), "dealer_slot_to_seat"),
+        _slot_map(
+            data.get("occupancy_slot_to_seat", {}),
+            "occupancy_slot_to_seat",
+        ),
+        data.get("actor_observation_is_current"),
     )
 
 
@@ -287,6 +298,10 @@ def _used_calibration_fields(observation: RawObservation) -> set[str]:
     if any(slot.field.validation_status is ValidationStatus.VALID and
            slot.field.value is not None for slot in observation.slot_stacks):
         names.add("player_stacks")
+    if any(slot.field.validation_status is ValidationStatus.VALID and
+           slot.field.value is not None
+           for slot in observation.slot_occupancies):
+        names.add("occupancy")
     if any(slot.field.validation_status is ValidationStatus.VALID and
            slot.field.value is not None for slot in observation.slot_actions):
         names.add("action")

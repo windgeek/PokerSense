@@ -9,9 +9,11 @@ live inputs instead of inventing actions.
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 from datetime import datetime
 
 from poker_engine.core._freeze import _require_aware_dt, utc_now
+from poker_engine.core.enums import PlayerStatus
 from poker_engine.core.events import StateEvent
 from poker_engine.core.state import PokerState
 from poker_engine.realtime.analysis import RealtimeAnalysis
@@ -162,10 +164,19 @@ class LiveStrategySession:
         action_line = None
         if self._action_line_resolver is not None:
             action_line = self._action_line_resolver(state, history)
+        dealt_count = sum(
+            player.status is not PlayerStatus.SITTING_OUT
+            for player in state.players
+        )
+        game_config = self._game_config
+        if 2 <= dealt_count <= game_config.max_seats:
+            game_config = replace(
+                game_config, dealt_player_count=dealt_count
+            )
         return build_decision_context(
             state,
             request,
-            self._game_config,
+            game_config,
             action_history=history,
             input_quality=quality,
             action_line=action_line,

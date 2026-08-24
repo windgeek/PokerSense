@@ -4,9 +4,11 @@
 
 PokerSense is a real-time Texas Hold'em training companion for authorized,
 self-hosted games. It reads a table from LDPlayer over ADB and displays analysis in a
-separate window. The current build recognizes hero cards and reports preflop
-equity; the v0.3 target adds explainable action frequencies, sizes, EVs, and
-confidence.
+separate window. The current `main` build recognizes hero and board cards,
+the total pot, seat occupancy, visual-slot stacks, the Dealer marker, the
+Hero decision turn, and completed action labels, derives the street,
+and reports visible-card equity against a random range;
+the v0.3 target adds explainable action frequencies, sizes, EVs, and confidence.
 
 PokerSense is not an autoplay bot. It never clicks, types, places bets, or
 controls a poker client. The human remains the only executor. The intended
@@ -21,21 +23,29 @@ longer the primary product path.
 |---|---|
 | Windows LDPlayer capture over ADB | Implemented; reads emulator pixels independently of host-window position, occlusion, and DPI |
 | WePoker Android 1440×2560 portrait hero cards | Calibrated |
-| Equity calculation | Available; preflop hero equity against a random range |
+| WePoker Android board cards and street | Calibrated; deal/flip transitions fail closed |
+| WePoker Android pot | Calibrated for the global total-pot banner; labels and overlays abstain |
+| WePoker Android visual-slot stacks | Calibrated across eight fixed seat slots; empty/covered slots abstain |
+| WePoker Android seat occupancy and positions | Calibrated across eight slots; a versioned Android mapping derives canonical seats and positions |
+| WePoker Android Dealer marker | Calibrated as a visual slot and mapped only through the versioned Android seat contract |
+| Equity calculation | Available for the recognized visible cards against a random range |
 | English and Simplified Chinese UI | Available; preference persists across restarts |
-| Board cards, pot and street | Not yet calibrated; shown as unavailable |
-| Explainable advice, range tracking, and training feedback | Target architecture; not yet implemented |
+| Hero actor and completed visual-slot actions | Hero decision turn and fold/check/call/bet/raise/all-in are calibrated; opponent current-turn timers still abstain |
+| Canonical action history and amounts | Completed action glyphs are deduplicated and mapped; amounts are accepted only when stack delta and pot evidence agree |
+| Explainable advice, range tracking, and training feedback | Contracts and UI exist; live actions remain withheld without a qualified multiplayer strategy Provider |
 | Automated play or client control | Never provided |
 
 When a newly dealt pair of hero cards is confirmed in consecutive frames,
 PokerSense starts a new hand automatically. A transient frame during a deal is
 not used as a state update.
 
-The Android calibration used 66 deduplicated full-resolution ADB frames from
-two LDPlayer instances. Fifty-eight visible-hand frames covering 23 distinct
-hero hands read correctly; all eight login, transition, menu, or no-card frames
-abstained. Correlated temporal repeats are not counted as independent accuracy
-samples.
+Android calibration now combines the original 66 deduplicated ADB frames with
+234 full-resolution table frames and an 88-minute temporal recording. Each
+field keeps independent evidence. Occupancy was reviewed in 272 stable slot
+states, the Hero actor detector accepted 33 decision frames and abstained on
+the other 201 frames, and Dealer/stack/action observations remain bound to the
+versioned Android mapping. Private raw captures and the recording remain
+outside Git and packages.
 
 ## Release status
 
@@ -57,9 +67,14 @@ device. The currently calibrated profile is **1440×2560 portrait**.
    With more than one instance, select it explicitly with
    `make run-desktop ARGS="--device-serial emulator-5556"`.
 
-Only the hero-card area has been measured for this platform. The displayed
-equity therefore reflects the recognized hero hand before the flop, against a
-random opponent range. It is not a full table-state analysis.
+Cards, street, total pot, occupancy, stacks, Dealer, Hero actor, and completed
+action labels have been measured for this platform. The live pipeline maps
+them into canonical seats and positions and records only chip-consistent
+completed actions. Opponent current-turn timers, side-pot edge cases, and an
+authorized raw-frame Replay still require release evidence. Because no
+qualified multiplayer strategy Provider is bundled, live strategy actions
+remain withheld and the displayed equity is still a visible-card calculation
+against a random opponent range.
 
 With exactly one authorized ADB device, PokerSense uses `auto` and starts the
 default Android path. With multiple instances it fails closed and lists the

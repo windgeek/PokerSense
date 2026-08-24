@@ -139,6 +139,7 @@ class RawObservation:
     # slot_id values are unique and strictly ascending.
     slot_stacks: tuple[SlotObservation[ChipAmount], ...] = ()
     slot_actions: tuple[SlotObservation[ActionType], ...] = ()
+    slot_occupancies: tuple[SlotObservation[bool], ...] = ()
 
     def __post_init__(self) -> None:
         if not isinstance(self.frame_seq, int) or isinstance(
@@ -176,6 +177,7 @@ class RawObservation:
         for name, expected in (
             ("slot_stacks", ChipAmount),
             ("slot_actions", ActionType),
+            ("slot_occupancies", bool),
         ):
             slots = tuple(getattr(self, name))
             if not all(isinstance(s, SlotObservation) for s in slots):
@@ -187,7 +189,9 @@ class RawObservation:
                 v = s.field.value
                 if v is None:
                     continue
-                if not isinstance(v, expected):
+                if not isinstance(v, expected) or (
+                    expected is bool and type(v) is not bool
+                ):
                     raise TypeError(
                         f"{name} slot field.value must be "
                         f"{expected.__name__} or None, got {type(v).__name__}"

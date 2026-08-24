@@ -49,6 +49,36 @@ def _template_gray(tmpl: np.ndarray) -> np.ndarray:
     return tmpl
 
 
+def _minority_foreground(gray: np.ndarray) -> np.ndarray:
+    """Return a binary glyph mask for either light-on-dark or dark-on-light."""
+    _, light = cv2.threshold(
+        gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+    )
+    dark = cv2.bitwise_not(light)
+    return light if int((light > 0).sum()) < int((dark > 0).sum()) else dark
+
+
+def _glyph_hole_count(img: np.ndarray) -> int:
+    """Count stable enclosed regions in one segmented character glyph.
+
+    Correlation alone can score Android's anti-aliased ``8`` closer to ``3``.
+    Their topology is unambiguous, so templates with a different number of
+    enclosed regions are excluded whenever an equal-topology candidate exists.
+    Tiny compression specks are ignored.
+    """
+    foreground = _minority_foreground(_to_gray(img))
+    contours, hierarchy = cv2.findContours(
+        foreground, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE
+    )
+    if hierarchy is None:
+        return 0
+    return sum(
+        1
+        for index, contour in enumerate(contours)
+        if hierarchy[0][index][3] >= 0 and cv2.contourArea(contour) >= 2.0
+    )
+
+
 _NORM = (28, 28)  # fixed normalized grid for single-char matching
 
 
@@ -75,9 +105,19 @@ def _match_char(char_img: np.ndarray, templates: Mapping[str, np.ndarray]):
     ratio preserved), so digit shape is compared independently of source size.
     """
     gray = _normalize_char(_to_gray(char_img))
+    char_holes = _glyph_hole_count(char_img)
+    matching_topology = {
+        label for label, tmpl in templates.items()
+        if _glyph_hole_count(tmpl) == char_holes
+    }
+    candidates = (
+        matching_topology if matching_topology else set(templates)
+    )
     best = None
     best_score = -1.0
     for label, tmpl in templates.items():
+        if label not in candidates:
+            continue
         tg = _normalize_char(_template_gray(tmpl))
         res = cv2.matchTemplate(gray, tg, cv2.TM_CCOEFF_NORMED)
         _, maxval, _, _ = cv2.minMaxLoc(res)
@@ -96,7 +136,10 @@ def segment_characters(roi_image: np.ndarray) -> list[np.ndarray]:
     compares comparable shapes.
     """
     gray = _to_gray(roi_image)
-    _, binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    # Support both black-on-light desktop text and white-on-dark Android UI.
+    # In a tight amount ROI the glyphs are the minority class; selecting the
+    # smaller foreground also avoids making the whole dark banner one glyph.
+    binary = _minority_foreground(gray)
     col_ink = (binary > 0).sum(axis=0)  # ink mass per column
 
     spans: list[tuple[int, int]] = []

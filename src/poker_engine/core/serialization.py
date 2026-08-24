@@ -601,6 +601,9 @@ def _ser_raw(o: RawObservation) -> dict:
         "actor": _ser_observation_field(o.actor),
         "slot_stacks": [_ser_slot_observation(s) for s in o.slot_stacks],
         "slot_actions": [_ser_slot_observation(s) for s in o.slot_actions],
+        "slot_occupancies": [
+            _ser_slot_observation(s) for s in o.slot_occupancies
+        ],
         "overall_confidence": o.overall_confidence,
     }
 
@@ -613,6 +616,9 @@ def _deser_raw(d: dict) -> RawObservation:
     )
     slot_actions = tuple(
         _deser_slot_observation(s) for s in d.get("slot_actions", [])
+    )
+    slot_occupancies = tuple(
+        _deser_slot_observation(s) for s in d.get("slot_occupancies", [])
     )
     return RawObservation(
         frame_seq=d["frame_seq"],
@@ -628,6 +634,7 @@ def _deser_raw(d: dict) -> RawObservation:
         actor=_deser_observation_field(d["actor"]),
         slot_stacks=slot_stacks,
         slot_actions=slot_actions,
+        slot_occupancies=slot_occupancies,
         overall_confidence=d["overall_confidence"],
     )
 

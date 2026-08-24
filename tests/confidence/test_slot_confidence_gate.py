@@ -34,7 +34,7 @@ def _slot(slot_id, value=None, confidence=1.0, status=ValidationStatus.VALID):
     )
 
 
-def _raw(slot_stacks=(), slot_actions=(), **extra):
+def _raw(slot_stacks=(), slot_actions=(), slot_occupancies=(), **extra):
     params = dict(
         frame_seq=1,
         timestamp=_aware(),
@@ -49,6 +49,7 @@ def _raw(slot_stacks=(), slot_actions=(), **extra):
         actor=_field(0),
         slot_stacks=slot_stacks,
         slot_actions=slot_actions,
+        slot_occupancies=slot_occupancies,
     )
     params.update(extra)
     return RawObservation(**params)
@@ -77,6 +78,16 @@ def test_slot_action_below_threshold_gated():
         r.observation.slot_actions[0].field.validation_status
         is ValidationStatus.UNKNOWN
     )
+
+
+def test_slot_occupancy_uses_independent_slot_threshold():
+    gate = ConfidenceGate(slot_thresholds={"occupancy": 0.8})
+    raw = _raw(slot_occupancies=(_slot(4, False, confidence=0.79),))
+
+    result = gate.apply(raw)
+
+    assert "slot_occupancies[slot_id=4]" in result.blocked_fields
+    assert result.observation.slot_occupancies[0].field.value is None
 
 
 def test_slot_threshold_exact_passes():

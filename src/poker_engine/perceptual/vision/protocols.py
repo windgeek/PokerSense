@@ -95,9 +95,11 @@ class AmountRecognition:
 class ActionRecognition:
     value: ActionType | None
     raw_score: float
+    runner_up_score: float = 0.0
 
     def __post_init__(self) -> None:
         _check_raw_score(self.raw_score, "raw_score")
+        _check_raw_score(self.runner_up_score, "runner_up_score")
 
 
 @dataclass(frozen=True)

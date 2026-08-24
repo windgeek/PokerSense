@@ -32,16 +32,23 @@ changing desktop capture, recognition, packaging, or project documentation.
 - Default branch: `main`.
 - Current release: `v0.1.11` — [GitHub Release](https://github.com/windgeek/PokerSense/releases/tag/v0.1.11), source commit `f963181`.
 - The `main` desktop path reads WePoker Android from a portrait LDPlayer
-  instance over ADB, recognizes **hero cards**, and displays preflop equity
-  against a random range. Published v0.1.11 installers still contain the
-  legacy H5 path; do not describe Android capture as released yet.
+  instance over ADB, recognizes **hero and board cards**, derives the street,
+  reads the total pot, eight-slot occupancy/stacks, the visual-slot Dealer
+  marker, Hero's current decision turn, and completed visual-slot action
+  labels, and displays visible-card equity against a random range. Published v0.1.11
+  installers still contain the legacy H5 path; do not describe Android capture
+  as released yet.
 - A different hero-card pair must be visible for two consecutive frames before
   it starts a new hand. This prevents deal-animation reads from replacing the
   prior hand while allowing the companion window to refresh on every deal.
-- Android board cards, pot, seats/stacks, dealer/actor, actions, and street are
-  deliberately unavailable until each has
-  its own measured platform calibration. Do not infer them from hero-card
-  confidence.
+- All calibrated Android fields, including per-slot stack/action observations,
+  require two consecutive matching production frames before state processing.
+- Android occupancy, stack, Dealer, action, and Hero actor each have independent
+  measured geometry and confidence evidence. A versioned eight-slot mapping
+  promotes them to canonical seats/positions. Completed action glyphs are
+  deduplicated and become canonical events only when actor stack delta and pot
+  evidence are coherent. Opponent current-turn timers and complex missed-action/
+  side-pot sequences remain unavailable without additional measured Replay.
 - Capture frames are memory-only. The only persistent user setting is UI
   language (`auto`, `en`, or `zh`).
 
@@ -115,6 +122,90 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-08-24 — Android seat/actor/canonical-action closure:** added an
+  independent eight-slot occupancy observation contract, serializer,
+  confidence gate, temporal confirmation, and empty-plus recognizer. Thirty-
+  four manually reviewed stable states produced 272/272 correct occupied or
+  empty labels with no conflict. Added a versioned eight-slot Android mapping
+  that derives canonical 2–8-player positions from Dealer and occupancy,
+  promotes mapped stacks, and keeps unknown slots fail closed. A separately
+  measured Hero-turn recognizer accepted all 33 reviewed blue-control frames
+  and abstained on the other 201 private frames; it never guesses an opponent
+  timer. Completed action glyphs now choose their own actor slot, persistently
+  rendered glyphs are deduplicated, and an event is recorded only when stack
+  delta and pot evidence reconstruct a legal chip amount. Canonical action
+  history now reaches `LiveStrategySession`, whose dealt-player count follows
+  active occupancy; without a qualified multiplayer Provider, Advice remains
+  ABSTAIN. Updated the English/Chinese product, vision, architecture, and
+  handoff documents. The full suite passed 1,806 tests with 3 platform skips
+  (1,809 collected); repository-wide Flake8 and diff checks passed. The local
+  v0.1.11 macOS bundle built successfully, passed strict code-signature
+  verification, and contains one copy of each new mapping/template resource.
+  Authorized privacy-reviewed raw Replay, live Windows LDPlayer/reconnect and
+  Windows packaging remain external release evidence; opponent current actor
+  and complex missed-action/side-pot sequences remain UNKNOWN until measured.
+
+- **2026-08-24 — Android completed-action label calibration:** added eight
+  Android-only action ROIs and privacy-safe binary glyph masks for Fold,
+  Check, Call, Bet, Raise, and All-in. Forty-five timeline- and slot-spread
+  labels were manually reviewed and all 45 matched the correct action/slot;
+  600 labels cleared the measured 0.83 floor across all 234 frames with no
+  ambiguous runner-up. The 48 strongest rejected candidates were Hero action
+  controls, nicknames, avatars, cards, or overlays; their maximum score was
+  0.762. Production now emits completed `slot_actions[]` through independent
+  calibration, confidence gating, and two-frame temporal confirmation.
+  Persistent Fold labels remain observations rather than duplicate events.
+  The full suite passed 1,796 tests with 3 platform skips (1,799 collected);
+  repository-wide Flake8 and diff checks passed. Seat occupancy, canonical
+  mapping, actor, action amounts, raw Replay, live Windows LDPlayer, and
+  packaging remain; strategy therefore still fails closed to ABSTAIN.
+
+- **2026-08-24 — Android visual-slot stacks and Dealer calibration:** added
+  eight Android-only stack ROIs with independent glyph templates/calibration,
+  plus eight Dealer search windows whose output is explicitly a visual slot.
+  Eighty timeline-spread stack crops (ten per slot) were manually reviewed and
+  all decoded correctly; 68 empty/overlay/transition negatives abstained.
+  Forty Dealer detections (five per slot) were reviewed and all mapped to the
+  correct slot; across all 234 raw ADB frames, 216 produced exactly one valid
+  Dealer slot and 18 hidden/transition states abstained. Added glyph-topology
+  filtering after real stack crops exposed an 8-versus-3 correlation error.
+  Focused production-profile tests passed; the full suite passed 1,795 tests
+  with 3 platform skips, and repository-wide Flake8 and diff checks passed.
+  Seat occupancy, canonical mapping, actor/action amounts, raw Replay, live Windows
+  LDPlayer, and packaging remain.
+
+- **2026-08-24 — Android board/street production calibration:** added an
+  Android-only five-slot board ROI/layout for the 1440x2560 LDPlayer canvas
+  and independently calibrated occupancy/street evidence from 27 manually
+  reviewed stable raw-ADB states: 17 distinct postflop boards containing 64
+  visible card identities plus 10 preflop empty-board states. All stable
+  states read correctly; measured deal/flip transitions top out below the
+  accepted occupancy floor and remain UNKNOWN/CONFLICT. The separate
+  88-minute H.264 recording validated the same geometry after its 48-pixel
+  toolbar crop but did not lower raw-ADB thresholds. Added a private video
+  normalization/dedup manifest tool and synthetic production-profile tests.
+  Also calibrated the fixed total-pot ROI and white-on-dark amount OCR: 22/22
+  distinct manually transcribed values and all 53 labeled stable frames were
+  correct, while 25 label/menu/overlay/transition negatives abstained. The
+  full suite passed 1,793 tests with 3 platform skips; repository-wide Flake8
+  and diff checks passed. Seat occupancy/canonical mapping, actor/actions,
+  authorized raw-frame Replay, live Windows LDPlayer, and packaging remain.
+
+- **2026-08-24 — 88-minute LDPlayer video intake:** audited a private
+  1.9GB H.264 recording (88m35s, 30fps, 1440x2608) without adding it or
+  extracted frames to Git. The extra 48 vertical pixels are a stable LDPlayer
+  host toolbar; cropping `(0, 48, 1440, 2560)` restores the calibrated Android
+  game canvas, so existing Android ROIs remain geometrically applicable.
+  A full-decode one-minute sample produced 89 frames spanning changing seat
+  occupancy, all streets, all-ins, showdowns/results, and ranking/profile
+  overlays. The production hero recognizer returned 62 VALID, 27 UNKNOWN,
+  and zero CONFLICT across 60 distinct accepted hands; visual review found
+  the UNKNOWN cases concentrated in card backs, folded/dimmed cards, and
+  overlays, with no confirmed false VALID in the sample. H.264 compression
+  makes this strong temporal/negative/calibration evidence but not a basis
+  for lowering thresholds without raw ADB PNG ground truth. No product code
+  or calibration changed.
 
 - **2026-08-23 — Android-first README:** clarified the English and Simplified
   Chinese user guides so LDPlayer Android/ADB is the only default live input:
@@ -753,10 +844,10 @@ structure; do not represent a local build as a clean-user installation test.
 
 1. Run the new ADB path against a live Windows LDPlayer instance, measure
    capture latency/reconnect behavior, and package it only after that passes.
-2. Collect user-labeled Android captures for board, pot, occupied/active seats,
-   stacks, dealer/actor, actions, action history, all-in/side-pot, hand
-   transitions, overlays, and genuine failures.
-3. Calibrate Android board cards, pot, and street from independently measured
-   real table captures; keep every unmeasured field `UNKNOWN`.
+2. Register a privacy-reviewed, authorized raw-frame Android Replay covering
+   all-in/side-pot, missed multi-action sequences, hand transitions, overlays,
+   opponent current-turn evidence, and genuine failures.
+3. Keep opponent current actor and every other unmeasured Android field
+   `UNKNOWN`; do not infer it from the completed-action glyph.
 4. Improve CI coverage so ordinary feature-branch pushes and pull requests run
    the test suite, not only `main` and release tags.

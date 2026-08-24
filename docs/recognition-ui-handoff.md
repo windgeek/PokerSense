@@ -8,9 +8,11 @@
 ## 1. 先看结论
 
 策略、状态、多人 Equity、Router、Advice 和大部分自动化测试已经存在。你不需要实现
-Solver，也不需要在识别层决定 Fold/Call/Raise。当前真正阻断产品闭环的是：WPK 画面还
-不能稳定提供 dealer、actor、逐座位筹码、行动、下注金额、底池、街道和公共牌；UI 也还
-需要用真实 `DesktopFrame` 完成四种 Advice 状态和 Fast→Slow 更新验收。
+Solver，也不需要在识别层决定 Fold/Call/Raise。竖屏雷电 Android 现已能稳定提供
+Hero、board、street、总底池、8 槽 occupancy/stack、Dealer、Hero 当前行动回合和完成动作；
+版本化 mapping 已能推导 canonical seat/position，完成动作也能在 stack/pot 守恒时进入 history。
+当前真正阻断发布闭环的是授权 raw-frame Replay、对手当前 actor 和复杂 all-in/side-pot/漏帧边界，
+以及缺少匹配实际人数的合格策略 Provider；UI 还需用真实 `DesktopFrame` 验收四种 Advice 状态。
 
 双方约定的边界是：
 
@@ -29,9 +31,14 @@ Solver，也不需要在识别层决定 Fold/Call/Raise。当前真正阻断产�
 |---|---|---|---|
 | Capture | macOS/Windows 窗口捕获、显式 window index、帧序号 | `src/poker_engine/perceptual/capture/` | 只在 WPK 窗口身份或布局选择需要时修改 |
 | Hero cards | WPK Hero 两张底牌真实识别、两帧确认 | `src/poker_engine/perceptual/`、`configs/vision/wepoker/` | 继续补 Replay，不要降低已有门槛 |
+| Android Board/Street | 5 个独立牌位、占位/牌面双信号、街道推导 | `configs/vision/wepoker_android/`、`desktop/live.py` | 补 raw-frame Replay；过渡帧不得降阈值 |
+| Android Pot | 固定总底池 ROI、深色底白字 OCR、负样本拒识 | 同上 | 补边池/动画 Replay；不与 stack 共用证据 |
+| Android Occupancy/Stack | 8 个固定 visual slot、独立 plus-marker/字模校准、空座/覆盖层拒识 | 同上 | 补 raw Replay；不得借其他字段置信度 |
+| Android Dealer | 8 个独立搜索窗、唯一 marker visual slot、隐藏态拒识 | 同上 | 已通过版本化 mapping 转 canonical seat |
+| Android Actor/Action | Hero 当前蓝色操作区；8 槽完成动作字形 fold/check/call/bet/raise/all-in | 同上 | 对手当前计时圈与复杂金额边界补 raw Replay |
 | Observation contract | 每字段 value/confidence/source/evidence/timestamp/status | `src/poker_engine/core/observation.py` | 按合同输出，不要直接写状态 |
 | Temporal Consensus | 所有字段和 slot 的连续帧确认、冲突/漏帧处理 | `src/poker_engine/realtime/temporal_consensus.py` | 通常无需修改；提供稳定候选即可 |
-| Slot→Seat mapping | 版本化 platform/layout、stack/action/actor/dealer slot 映射 | `src/poker_engine/state_engine/platform_mapping.py` | 需要提供 WPK 实测 mapping/config |
+| Slot→Seat mapping | 版本化 platform/layout、occupancy/stack/action/actor/dealer slot 映射 | `src/poker_engine/state_engine/platform_mapping.py` | Android 8 槽实测 config 已接入；未知布局拒答 |
 | State/Event Engine | 2–9 人状态、行动重建、合法动作、主池/边池、原子版本 | `src/poker_engine/state_engine/` | 不在 Vision 中复制这些逻辑 |
 | DecisionContext | 位置、筹码、底池、行动历史、合法动作和质量门 | `src/poker_engine/strategy/state.py` | 由已有代码构建 |
 | Equity | HU/multiway exact、Monte Carlo、CI、cache、side-pot share | `src/poker_engine/strategy/` | 不在 UI 重算 |
@@ -55,13 +62,14 @@ Solver，也不需要在识别层决定 Fold/Call/Raise。当前真正阻断产�
 |---:|---|---|---|
 | P0 | WPK 窗口和布局身份 | `platform_id`、`layout_id`、mapping/calibration version | 同标题窗口必须显式选择；布局不匹配时拒绝识别 |
 | P0 | 2–9 座位几何 | 每个 visual `slot_id` 的稳定 ROI 和 seat mapping 配置 | 空座、入座、离桌、不同人数不串 seat |
-| P0 | Dealer/Button | `dealer_pos: ObservationField[int]`，value 是 visual slot | 换手后位置可唯一推导；冲突时 UNKNOWN/CONFLICT |
-| P0 | 逐座位筹码 | `slot_stacks: tuple[SlotObservation[ChipAmount], ...]` | OCR 有单位；动画中不把过渡数字写入状态 |
-| P0 | Actor | `actor: ObservationField[int]`，表示刚完成动作的 visual slot | 不表示“下一位行动者”；没有唯一证据时 UNKNOWN |
-| P0 | 动作标签 | `slot_actions[]` 或全局 `action`，使用规范 `ActionType` | fold/check/call/bet/raise/all-in 可区分；冲突不猜 |
-| P0 | 行动金额 | `bet_size` 和对应 OCR evidence | 明确读到的是本次增量还是桌面显示总额；不能静默混用 |
-| P0 | Pot | `pot: ObservationField[ChipAmount]` | 过渡动画、归还 unmatched chips、side-pot 标签有测试 |
-| P0 | Street/Board | `street`、`board_cards` | flop/turn/river 张数一致；发牌动画不提前确认 |
+| 已标定 | 座位占用 | `slot_occupancies: tuple[SlotObservation[bool], ...]` | 34 个稳定状态、272/272 槽位正确；过渡/覆盖保持 UNKNOWN |
+| 已标定 | Dealer/Button | `dealer_pos: ObservationField[int]`，value 是 visual slot | 40/40 复核正确；mapping 已接入，raw Replay 待补 |
+| 已标定 | 逐座位筹码 | `slot_stacks: tuple[SlotObservation[ChipAmount], ...]` | 80/80 复核正确；mapping 已接入，raw Replay 待补 |
+| 部分标定 | Actor | `actor: ObservationField[int]`，Android 只表示当前轮到 Hero | 33/33 正样本命中、201 其他帧拒识；对手当前计时圈保持 UNKNOWN；完成动作 actor 由 glyph slot 决定 |
+| 已标定 | 动作标签 | `slot_actions[]`，使用规范 `ActionType` | 45/45 人工复核正确；Hero 操作按钮和覆盖层拒识；持久 fold 由时序层去重 |
+| 部分标定 | 行动金额 | actor stack delta + pot delta evidence | 两者守恒时才构造本次增量和 total-street amount；漏帧/side-pot 不猜 |
+| 已标定 | Android Pot | `pot: ObservationField[ChipAmount]` | 总底池数值与负样本已测；side-pot 仍需 Replay |
+| 已标定 | Android Street/Board | `street`、`board_cards` | flop/turn/river 张数一致；发牌动画不提前确认；仍需 raw Replay 发布证据 |
 | P0 | 每字段质量 | confidence、source、evidence、timestamp、status | 每个字段独立；低置信度不能借 Hero 置信度升级 |
 | P0 | 真实 Replay | 原始帧、配置、校准、逐帧 expected 状态和 hash | 通过 `docs/capture-replay.md` 的 raw-frame release gate |
 | P1 | 多布局/缩放 | 分辨率、浏览器缩放、窗口尺寸对应的 layout profiles | 未知布局 fail closed，不套用最接近布局 |
@@ -98,7 +106,8 @@ RawObservation(
     action=ObservationField(...),
     street=ObservationField(...),
     dealer_pos=ObservationField(...),      # visual slot
-    actor=ObservationField(...),           # just-completed actor visual slot
+    actor=ObservationField(...),           # Android: current Hero actor
+    slot_occupancies=(SlotObservation(...), ...),
     slot_stacks=(SlotObservation(...), ...),
     slot_actions=(SlotObservation(...), ...),
 )
@@ -116,9 +125,8 @@ RawObservation(
 | `validation_status` | `VALID/LOW_CONFIDENCE/UNKNOWN/CONFLICT` |
 
 注意：visual `slot_id` 不是玩家 seat，也不是 position。转换只能通过版本化
-`PlatformSeatMapping` 完成。座位占用目前没有独立的 `RawObservation` 字段；在扩展合同前，
-不要在识别代码中自定义未审计 JSON 字段。先提交合同变更，并同时增加 serialization、
-temporal、mapping 和 Replay 测试。
+`PlatformSeatMapping` 完成。`slot_occupancies` 已进入 `RawObservation`、serialization、temporal、
+mapping 和 Replay 合同；未知/冲突值不得用 stack 是否可读来静默替代。
 
 ## 5. UI 输入合同
 

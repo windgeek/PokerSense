@@ -167,18 +167,22 @@ def build_engine():
     calibrators = {
         k: ConfidenceCalibrator(k, 1, bins,
                                 abstain_floor=0.5 if k == "card" else None)
-        for k in ("card", "amount", "street", "action", "board")
+        for k in (
+            "card", "amount", "stack", "street", "action", "board", "dealer",
+        )
     }
     manifest = VisionAssetManifest(
         platform_id="wpk", layout_id="6max", card_layout_version=1,
         template_set_version="sha-bench", calibration_version=1,
-        recognizer_versions={"card": "1", "amount": "1", "street": "1",
-                             "action": "1", "board": "1"},
+        recognizer_versions={"card": "1", "amount": "1", "stack": "1",
+                             "street": "1", "action": "1", "board": "1",
+                             "dealer": "1"},
     )
     return VisionEngine(
         board_layout=board_layout, hero_layout=hero_layout,
         card_recognizer=card, board_slot_detector=board_det,
         street_detector=TemplateStreetDetector(), amount_recognizer=amount,
+        stack_recognizer=amount,
         action_recognizer=action, calibrators=calibrators, manifest=manifest,
         bet_size_semantics="global",
     )

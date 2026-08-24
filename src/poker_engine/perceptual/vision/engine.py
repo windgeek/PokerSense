@@ -46,9 +46,13 @@ from .table_map import ROIKind, ROI, TableMap
 from .trace import RecognitionTrace
 
 # Required calibrator keys (each detector has a versioned calibrator).
-_REQUIRED_CALIBRATORS = ("card", "amount", "action", "street", "board")
+_REQUIRED_CALIBRATORS = (
+    "card", "amount", "stack", "dealer", "action", "street", "board",
+)
 # Required recognizer-version keys in the manifest.
-_REQUIRED_VERSIONS = ("card", "amount", "action", "street", "board")
+_REQUIRED_VERSIONS = (
+    "card", "amount", "stack", "dealer", "action", "street", "board",
+)
 # Allowed scalar bet_size semantic declarations.
 _ALLOWED_BET_SEMANTICS = ("single", "global", "hero")
 
@@ -159,11 +163,15 @@ class VisionEngine:
         board_slot_detector: BoardSlotDetector,
         street_detector: StreetDetector,
         amount_recognizer: AmountRecognizer,
+        stack_recognizer: AmountRecognizer,
         action_recognizer: ActionRecognizer,
         calibrators: Mapping[str, ConfidenceCalibrator],
         manifest: VisionAssetManifest,
         require_action: bool = False,
         bet_size_semantics: str | None = None,
+        dealer_recognizer=None,
+        empty_slot_recognizer=None,
+        actor_recognizer=None,
     ) -> None:
         self._board_layout = board_layout
         self._hero_layout = hero_layout
@@ -171,7 +179,11 @@ class VisionEngine:
         self._board_detector = board_slot_detector
         self._street_detector = street_detector
         self._amount = amount_recognizer
+        self._stack_amount = stack_recognizer
         self._action = action_recognizer
+        self._dealer = dealer_recognizer
+        self._empty_slot = empty_slot_recognizer
+        self._actor = actor_recognizer
         self._calibrators = dict(calibrators)
         self._manifest = manifest
         self._require_action = require_action
@@ -188,6 +200,8 @@ class VisionEngine:
         missing = [k for k in _REQUIRED_CALIBRATORS if k not in self._calibrators]
         if missing:
             raise TableMapError(f"missing calibrator(s): {sorted(missing)}")
+        if self._empty_slot is not None and "occupancy" not in self._calibrators:
+            raise TableMapError("empty-slot recognizer requires occupancy calibrator")
 
     # ------------------------------------------------------------------ utils
 
@@ -364,8 +378,13 @@ class VisionEngine:
                 frame, table_map, ROIKind.BET_SIZE, ts
             )
         slot_stacks = self._recognize_stacks(frame, table_map, ts)
+        slot_occupancies = self._recognize_occupancies(
+            frame, slot_stacks, ts
+        )
         slot_actions = self._recognize_actions(frame, table_map, ts)
+        dealer_pos = self._recognize_dealer(frame, ts)
 
+        actor = self._recognize_actor(frame, ts)
         return RawObservation(
             frame_seq=frame.frame_seq,
             timestamp=ts,
@@ -373,21 +392,18 @@ class VisionEngine:
             board_cards=board_cards,
             pot=pot,
             stacks=self._unknown_field(
-                frame.frame_seq, "stacks", None, "amount", ts, value=()
+                frame.frame_seq, "stacks", None, "stack", ts, value=()
             ),
             bet_size=bet_size,
             action=self._unknown_field(
                 frame.frame_seq, "action", None, "action", ts
             ),
             street=street_field,
-            dealer_pos=self._unknown_field(
-                frame.frame_seq, "dealer_pos", None, "none", ts, value=0
-            ),
-            actor=self._unknown_field(
-                frame.frame_seq, "actor", None, "none", ts, value=0
-            ),
+            dealer_pos=dealer_pos,
+            actor=actor,
             slot_stacks=slot_stacks,
             slot_actions=slot_actions,
+            slot_occupancies=slot_occupancies,
         )
 
     # ------------------------------------------------------------------ cards
@@ -655,8 +671,8 @@ class VisionEngine:
         )
         for roi in stack_rois:
             crop = extract_roi(frame, roi)
-            rec = self._amount.recognize(crop)
-            cal = self._cal("amount")
+            rec = self._stack_amount.recognize(crop)
+            cal = self._cal("stack")
             if cal.should_abstain(rec.raw_score) or rec.value is None:
                 conf = cal.calibrate(rec.raw_score).confidence
                 status = ValidationStatus.UNKNOWN
@@ -666,10 +682,10 @@ class VisionEngine:
                 status = ValidationStatus.VALID
                 field_val = rec.value
             ev = self._evidence(
-                frame.frame_seq, "stack", roi.slot_id, "amount",
+                frame.frame_seq, "stack", roi.slot_id, "stack",
                 rec.raw_score, conf, status,
             )
-            field = self._field(field_val, conf, status, self._src("amount"), ev, ts)
+            field = self._field(field_val, conf, status, self._src("stack"), ev, ts)
             out.append(SlotObservation(slot_id=roi.slot_id, field=field))
         return tuple(out)
 
@@ -691,13 +707,118 @@ class VisionEngine:
                 conf = cal.calibrate(rec.raw_score).confidence
                 status = ValidationStatus.VALID
                 field_val = rec.value
+                if (
+                    cal.abstain_floor is not None
+                    and not cal.should_abstain(rec.runner_up_score)
+                ):
+                    status = ValidationStatus.CONFLICT
+                    field_val = None
             ev = self._evidence(
                 frame.frame_seq, "action", roi.slot_id, "action",
                 rec.raw_score, conf, status,
+                components={"runner_up_raw": rec.runner_up_score},
             )
             field = self._field(field_val, conf, status, self._src("action"), ev, ts)
             out.append(SlotObservation(slot_id=roi.slot_id, field=field))
         return tuple(out)
+
+    def _recognize_occupancies(self, frame, slot_stacks, ts):
+        if self._empty_slot is None:
+            return ()
+        empty_scores = self._empty_slot.recognize(frame.image)
+        stack_by_slot = {slot.slot_id: slot.field for slot in slot_stacks}
+        slot_ids = sorted(set(stack_by_slot) | set(empty_scores))
+        cal = self._cal("occupancy")
+        out = []
+        for slot_id in slot_ids:
+            stack = stack_by_slot.get(slot_id)
+            stack_raw = (
+                float(stack.evidence.get("raw_score", 0.0))
+                if stack is not None else 0.0
+            )
+            stack_present = bool(
+                stack is not None
+                and stack.validation_status is ValidationStatus.VALID
+                and stack.value is not None
+            )
+            empty_raw = float(empty_scores.get(slot_id, 0.0))
+            empty_present = not cal.should_abstain(empty_raw)
+            raw_score = max(stack_raw, empty_raw)
+            confidence = cal.calibrate(raw_score).confidence
+            if stack_present and empty_present:
+                value = None
+                status = ValidationStatus.CONFLICT
+            elif stack_present:
+                value = True
+                status = ValidationStatus.VALID
+            elif empty_present:
+                value = False
+                status = ValidationStatus.VALID
+            else:
+                value = None
+                status = ValidationStatus.UNKNOWN
+            evidence = self._evidence(
+                frame.frame_seq, "occupancy", slot_id, "occupancy",
+                raw_score, confidence, status,
+                components={
+                    "stack_raw": stack_raw,
+                    "empty_marker_raw": empty_raw,
+                },
+            )
+            field = self._field(
+                value, confidence, status, self._src("occupancy"),
+                evidence, ts,
+            )
+            out.append(SlotObservation(slot_id=slot_id, field=field))
+        return tuple(out)
+
+    def _recognize_dealer(self, frame, ts):
+        if self._dealer is None:
+            return self._unknown_field(
+                frame.frame_seq, "dealer_pos", None, "dealer", ts
+            )
+        rec = self._dealer.recognize(frame.image)
+        cal = self._cal("dealer")
+        confidence = cal.calibrate(rec.raw_score).confidence
+        if rec.slot_id is None or cal.should_abstain(rec.raw_score):
+            status = ValidationStatus.UNKNOWN
+            value = None
+        elif not cal.should_abstain(rec.runner_up_score):
+            status = ValidationStatus.CONFLICT
+            value = None
+        else:
+            status = ValidationStatus.VALID
+            value = rec.slot_id
+        evidence = self._evidence(
+            frame.frame_seq, "dealer_pos", value, "dealer",
+            rec.raw_score, confidence, status,
+            components={"runner_up_raw": rec.runner_up_score},
+        )
+        return self._field(
+            value, confidence, status, self._src("dealer"), evidence, ts
+        )
+
+    def _recognize_actor(self, frame, ts):
+        if self._actor is None:
+            return self._unknown_field(
+                frame.frame_seq, "actor", None, "actor", ts
+            )
+        rec = self._actor.recognize(frame.image)
+        cal = self._cal("actor")
+        confidence = cal.calibrate(rec.raw_score).confidence
+        if rec.actor_slot is None or cal.should_abstain(rec.raw_score):
+            status = ValidationStatus.UNKNOWN
+            value = None
+        else:
+            status = ValidationStatus.VALID
+            value = rec.actor_slot
+        evidence = self._evidence(
+            frame.frame_seq, "actor", value, "actor",
+            rec.raw_score, confidence, status,
+        )
+        return self._field(
+            value, confidence, status, self._src("actor"), evidence, ts
+        )
 
 
 def _expected_board_count(street: Street | None) -> int | None:

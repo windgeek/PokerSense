@@ -91,8 +91,9 @@ def _manifest():
         platform_id="wpk", layout_id="6max",
         card_layout_version=1, template_set_version="sha-x",
         calibration_version=1,
-        recognizer_versions={"card": "1", "amount": "1", "street": "1",
-                             "action": "1", "board": "1"},
+        recognizer_versions={"card": "1", "amount": "1", "stack": "1",
+                             "dealer": "1", "street": "1", "action": "1",
+                             "board": "1"},
     )
 
 
@@ -117,6 +118,8 @@ def _engine(bet_size_semantics="global"):
     calibrators = {
         "card": _cal("card", abstain_floor=0.5),
         "amount": _cal("amount"),
+        "stack": _cal("stack"),
+        "dealer": _cal("dealer"),
         "street": _cal("street"),
         "action": _cal("action"),
         "board": _cal("board"),
@@ -125,6 +128,7 @@ def _engine(bet_size_semantics="global"):
         board_layout=board_layout, hero_layout=hero_layout,
         card_recognizer=card, board_slot_detector=board_det,
         street_detector=TemplateStreetDetector(), amount_recognizer=amount,
+        stack_recognizer=amount,
         action_recognizer=action, calibrators=calibrators,
         manifest=_manifest(), bet_size_semantics=bet_size_semantics,
     )
