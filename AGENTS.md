@@ -123,6 +123,16 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-08-24 — Android calibration desktop packages:** committed the
+  completed LDPlayer Android table calibration as `c3e9d59`, temporarily used
+  public standard GitHub-hosted runners for Build Desktop App run `#47`, then
+  restored the repository to private. The native Windows installer and macOS
+  DMG both built successfully; the downloaded DMG checksum verified, and its
+  bundled app passed strict code-signature, Gatekeeper Notarized Developer ID,
+  and stapler validation. The Windows installer is structurally a valid PE32
+  executable; live Windows LDPlayer installation and recognition remain
+  tester-owned release evidence.
+
 - **2026-08-24 — Android seat/actor/canonical-action closure:** added an
   independent eight-slot occupancy observation contract, serializer,
   confidence gate, temporal confirmation, and empty-plus recognizer. Thirty-
