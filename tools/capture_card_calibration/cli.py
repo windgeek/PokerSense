@@ -30,6 +30,12 @@ from .dataset import (
 from .geometry import write_geometry_drafts
 from .hashing import verify_sha256sums, write_sha256sums
 from .layout_id import build_layout_id
+from .record import (
+    probe_device,
+    record_session,
+    update_device_manifest,
+    write_session_log,
+)
 from .report import (
     STATUS_PASS,
     ReportInputs,
@@ -295,6 +301,78 @@ def _cmd_manifest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_probe(args: argparse.Namespace) -> int:
+    info = probe_device(
+        device_index=args.device,
+        api=args.api,
+        width=args.size[0],
+        height=args.size[1],
+        fps=args.fps,
+        fourcc=args.fourcc,
+    )
+    print("probed UVC parameters:")
+    for key, value in info.items():
+        print(f"  {key}: {value}")
+    return 0
+
+
+def _cmd_record(args: argparse.Namespace) -> int:
+    root = Path(args.root)
+    create_skeleton(root)
+    session_id = args.session
+    raw = root / "source" / "raw" / f"{session_id}.mkv"
+    log_path = root / "source" / "probe" / f"{session_id}.capture.json"
+
+    print(f"recording session {session_id} -> {raw}")
+    print("signal events will be written even on disconnect/reconnect")
+    print("stop with Ctrl+C (the video is finalized on exit)")
+
+    try:
+        log = record_session(
+            raw,
+            session_id=session_id,
+            device_index=args.device,
+            api=args.api,
+            width=args.size[0],
+            height=args.size[1],
+            fps=args.fps,
+            fourcc=args.fourcc,
+            codec=args.codec,
+            max_seconds=args.max_seconds or None,
+        )
+    except KeyboardInterrupt:
+        print("\ninterrupted; finalizing the recorded video…")
+        return 130
+
+    write_session_log(log_path, log)
+    print(f"\nrecorded {log.written_frames} frame(s) "
+          f"({log.duration_s:.1f}s) with {len(log.events)} signal event(s)")
+
+    if args.update_manifest:
+        recording = {
+            "container": raw.suffix.lstrip(".") or "mkv",
+            "codec": args.codec or "",
+        }
+        update_device_manifest(
+            root,
+            uvc={
+                "frame_size": [log.width, log.height] if log.width else [],
+                "fps": log.fps_requested,
+            },
+            recording=recording,
+            sessions=[
+                {
+                    "id": session_id,
+                    "raw": raw.name,
+                    "duration_s": round(log.duration_s, 3),
+                    "frames": log.written_frames,
+                }
+            ],
+        )
+        print(f"updated {root / 'source' / 'device_and_capture.json'}")
+    return 0
+
+
 # --- parser ----------------------------------------------------------------
 
 
@@ -363,6 +441,29 @@ def build_parser() -> argparse.ArgumentParser:
     manifest = sub.add_parser("manifest", help="inspect normalized/manifest.json")
     manifest.add_argument("--root", type=Path, required=True)
     manifest.set_defaults(func=_cmd_manifest)
+
+    probe = sub.add_parser("probe", help="probe a live UVC device (stage A)")
+    probe.add_argument("--device", type=int, default=0)
+    probe.add_argument("--api", default="MSMF", choices=["MSMF", "DSHOW", "ANY"])
+    probe.add_argument("--size", type=_parse_size, default=(1920, 1080))
+    probe.add_argument("--fps", type=int, default=30)
+    probe.add_argument("--fourcc", default=None)
+    probe.set_defaults(func=_cmd_probe)
+
+    record = sub.add_parser("record", help="record a capture session (stage B)")
+    record.add_argument("--root", type=Path, required=True)
+    record.add_argument("--session", required=True, help="e.g. session_001")
+    record.add_argument("--device", type=int, default=0)
+    record.add_argument("--api", default="MSMF", choices=["MSMF", "DSHOW", "ANY"])
+    record.add_argument("--size", type=_parse_size, default=(1920, 1080))
+    record.add_argument("--fps", type=int, default=30)
+    record.add_argument("--fourcc", default="YUY2")
+    record.add_argument(
+        "--codec", default=None, choices=["FFV1", "MJPG", "H264", "HEVC"]
+    )
+    record.add_argument("--max-seconds", type=float, default=None)
+    record.add_argument("--update-manifest", action="store_true")
+    record.set_defaults(func=_cmd_record)
 
     return parser
 

@@ -140,10 +140,13 @@ structure; do not represent a local build as a clean-user installation test.
   coordinate geometry that emits draft `table_map` + slot layouts, minimum
   coverage checks with an exact top-up list (§10), session+hand-isolated
   splits with leakage detection (§11), an acceptance report that defaults to
-  PARTIAL/BLOCKED (§17), and a `cli.py` entrypoint. Unit-tested (see
-  `tests/tools/test_capture_card_*.py`). This does NOT calibrate anything —
-  stages A (freeze hardware) and B (record 45–90 min of real hands) still
-  require real hardware and a human operator.
+  PARTIAL/BLOCKED (§17), and a `cli.py` entrypoint. It also ships the
+  stage A/B live-recording helpers (`probe` to read a device's negotiated
+  UVC parameters, `record` to capture a session to `source/raw/*.mkv` while
+  automatically logging disconnect / black-frame / reconnect signal events).
+  Unit-tested (see `tests/tools/test_capture_card_*.py`). This does NOT
+  calibrate anything — stages A (freeze hardware) and B (record 45–90 min of
+  real hands) still require real hardware and a human operator.
 
 - **2026-09-03 — capture-card realtime backend:** added the UVC capture
   backend `CaptureCardBackend` (`perceptual/capture/capture_card_backend.py`)

@@ -14,6 +14,27 @@
   （`CaptureCardBackend`），MSMF / DirectShow / YUY2，断流黑屏检测。
 - `src/poker_engine/perceptual/capture/normalization.py`：阶段 C 的画面归一化
   （旋转 → 镜像 → 裁剪 → 尺寸验证）。
+- `tools/capture_card_calibration/`：硬件无关的标定工具链，外加阶段 A/B 的
+  **真机录制工具**（`probe` 探设备、`record` 录会话）。运行方式：
+  `python -m tools.capture_card_calibration.cli --help`。
+
+## 用录制工具做阶段 A/B
+
+```bash
+# 1. 建数据集骨架（含 device_and_capture.json 模板）
+python -m tools.capture_card_calibration.cli init --root capture_card_calibration_YYYYMMDD
+
+# 2. 填好 source/device_and_capture.json 里的手机/适配器/采集卡字段（消除 REPLACE_ME）
+
+# 3. 探测采集卡实际参数（回填 uvc 字段）
+python -m tools.capture_card_calibration.cli probe --device 0 --api MSMF
+
+# 4. 录制一个会话（Ctrl+C 结束；断流/黑屏事件自动记进日志）
+python -m tools.capture_card_calibration.cli record --root capture_card_calibration_YYYYMMDD --session session_001 --update-manifest
+```
+
+`record` 会写到 `source/raw/session_001.mkv`（**未归一化原画**，归一化留到阶段 C 离线做），
+并在 `source/probe/` 输出逐会话的断流/黑屏/重连事件日志。
 
 ## 待完成（需真机采集，见 `docs/capture-card-calibration-guide.zh-CN.md` 阶段 A–L）
 
