@@ -1,5 +1,8 @@
 # Capture Service + Table Mapping
 
+手机连接电脑的 USB 采集卡候选链路必须单独标定，完整执行规范见
+[手机采集卡输入完整标定执行规范](capture-card-calibration-guide.zh-CN.md)。即使手机端使用相同牌面素材，采集卡也不得复用雷电模拟器或历史 H5 的 ROI 与置信度证据。
+
 感知层第一块（Task 6）：ADB 帧采集 + 牌桌 ROI 映射。为 Task 7 Vision 提供 `Frame + ROI crops`，不识别任何扑克内容。生产目标是 Windows 雷电模拟器中的 WePoker Android 竖屏版。
 
 ## 模块

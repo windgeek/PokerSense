@@ -106,6 +106,9 @@ structure; do not represent a local build as a clean-user installation test.
   coverage rules, performance budgets, CI tiers, and release gates.
 - `docs/capture-replay.md`: hash-pinned raw-frame Replay registration,
   recognizer evidence binding, quality-report contract, and R6 eligibility.
+- `docs/capture-card-calibration-guide.zh-CN.md`: AI-executable private-data
+  calibration and acceptance specification for the candidate phone-to-PC USB
+  capture-card path; its evidence remains separate from LDPlayer and H5.
 - `docs/recognition-ui-handoff.md`: practical handoff for the parallel WPK
   recognition and Live Coach UI work, including existing modules, owned gaps,
   frozen contracts, sequencing, and acceptance checklists.
@@ -122,6 +125,16 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-09-02 — capture-card calibration handoff:** added a Chinese,
+  AI-executable end-to-end specification for independently calibrating a real
+  Android phone connected through a USB capture card. It freezes source and
+  normalization metadata, visual-slot numbering, ROI/label contracts,
+  field-by-field minimum coverage, hand/session-isolated splits, threshold and
+  locked-validation rules, Replay/hash evidence, privacy constraints, failure
+  conditions, and final deliverables. Linked it from the capture/mapping
+  document. This is a calibration handoff only: no UVC capture backend or
+  released capture-card capability is claimed.
 
 - **2026-08-24 — Android calibration desktop packages:** committed the
   completed LDPlayer Android table calibration as `c3e9d59`, temporarily used
