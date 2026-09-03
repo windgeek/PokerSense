@@ -111,6 +111,11 @@ _REPO_ROOT = _resource_root()
 DEFAULT_PLATFORM = "wepoker_android"
 DEFAULT_LAYOUT = "ldplayer_portrait_1440x2560"
 DEFAULT_DEVICE_SERIAL = os.environ.get("POKERSENSE_ADB_SERIAL", "auto")
+CAPTURE_CARD_PLATFORM = "wepoker_android_capture_card"
+CAPTURE_CARD_LAYOUT = (
+    "phone_samsung_galaxy_s25_ultra__card_ugreen__"
+    "uvc_1920x1080_30__canvas_498x1080__v1"
+)
 
 
 def build_capture_backend(
@@ -341,7 +346,14 @@ def load_calibration(
         )
 
     table_map = TableMap.from_json(table_map_path.read_text())
-    calibration_data = json.loads((vision_dir / "calibration.json").read_text())
+    calibration_path = vision_dir / "calibration.json"
+    if not calibration_path.is_file():
+        raise LiveCaptureError(f"no calibration measurement at {calibration_path}")
+    calibration_data = json.loads(calibration_path.read_text())
+    if calibration_data.get("status") == "uncalibrated":
+        raise LiveCaptureError(
+            f"recognition profile {platform}/{layout} is explicitly uncalibrated"
+        )
     template_source = calibration_data.get("template_source", platform)
     template_dir = _REPO_ROOT / "configs" / "vision" / template_source
     hero_layout = hero_layout_from_dict(
@@ -563,6 +575,20 @@ def build_pipeline(
     platform is wired but NOT calibrated, so its loader fails closed (see
     :func:`load_calibration`) until Stage I measurement lands.
     """
+    if source == "capture-card":
+        if platform == DEFAULT_PLATFORM and layout == DEFAULT_LAYOUT:
+            platform = CAPTURE_CARD_PLATFORM
+            layout = CAPTURE_CARD_LAYOUT
+        elif platform != CAPTURE_CARD_PLATFORM:
+            raise LiveCaptureError(
+                "capture-card source requires the independent "
+                f"{CAPTURE_CARD_PLATFORM!r} recognition profile"
+            )
+    elif source == "adb" and platform == CAPTURE_CARD_PLATFORM:
+        raise LiveCaptureError(
+            "ADB source cannot use the capture-card recognition profile"
+        )
+
     table_map, vision = load_calibration(platform, layout)
     measured = load_measured_calibrations(
         _REPO_ROOT / "configs" / "vision" / platform

@@ -71,11 +71,22 @@ class NormalizationConfig:
         if not isinstance(self.mirror_horizontal, bool):
             raise TypeError("mirror_horizontal must be a bool")
         if self.crop_after_rotation is not None:
+            if (
+                not isinstance(self.crop_after_rotation, (list, tuple))
+                or len(self.crop_after_rotation) != 4
+                or any(
+                    isinstance(value, bool) or not isinstance(value, int)
+                    for value in self.crop_after_rotation
+                )
+            ):
+                raise TypeError(
+                    "crop_after_rotation must contain four integer coordinates"
+                )
             x0, y0, x1, y1 = self.crop_after_rotation
-            if x1 <= x0 or y1 <= y0:
+            if x0 < 0 or y0 < 0 or x1 <= x0 or y1 <= y0:
                 raise ValueError(
                     "crop_after_rotation must be a non-empty [x0,y0,x1,y1) "
-                    "with x1>x0 and y1>y0"
+                    "with non-negative origin, x1>x0 and y1>y0"
                 )
             object.__setattr__(
                 self, "crop_after_rotation", (int(x0), int(y0), int(x1), int(y1))
@@ -138,16 +149,20 @@ class NormalizationConfig:
                 not isinstance(raw, (list, tuple))
                 or len(raw) != 4
                 or any(
-                    isinstance(v, bool) or not isinstance(v, (int, float))
+                    isinstance(v, bool) or not isinstance(v, int)
                     for v in raw
                 )
             ):
                 raise TypeError(f"{key} must be [x0, y0, x1, y1]")
             return (int(raw[0]), int(raw[1]), int(raw[2]), int(raw[3]))
 
+        mirror_horizontal = data.get("mirror_horizontal", False)
+        if not isinstance(mirror_horizontal, bool):
+            raise TypeError("mirror_horizontal must be a bool")
+
         return cls(
             rotate_degrees=data["rotate_degrees"],
-            mirror_horizontal=bool(data.get("mirror_horizontal", False)),
+            mirror_horizontal=mirror_horizontal,
             crop_after_rotation=_opt_crop("crop_after_rotation"),
             output_size=_opt_size("output_size"),
             source_size=_opt_size("source_size"),

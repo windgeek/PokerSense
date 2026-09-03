@@ -134,6 +134,22 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-09-03 — capture-card branch review hardening:** reviewed the eight
+  commits on `feat/capture-card-toolchain` before integration. Fixed a source/
+  profile isolation defect so `source="capture-card"` automatically selects
+  the independent capture-card platform and can never run against the
+  calibrated LDPlayer profile; the reverse ADB/profile mismatch is also
+  rejected. Profiles explicitly marked `uncalibrated` now fail with a clear
+  `LiveCaptureError` before recognizers or templates are constructed. Tightened
+  normalization config parsing so strings, floats, booleans, and negative crop
+  coordinates cannot be silently coerced into geometry. Aligned the calibration
+  README/manifest with the already-landed partial geometry and recorded the
+  owner-approved session/head-count exceptions in the owning guide and plan.
+  Added focused regression tests. The full suite passed 2,121 tests with 3 platform skips;
+  repository-wide Flake8 and diff checks passed. Capture-card recognition
+  remains intentionally unreleased and fail-closed pending the recorded stage-G
+  gaps and the rest of stages H-L.
+
 - **2026-09-03 — owner focus: 6-8 handed table is the calibration primary
   direction.** The owner stated "90% 的牌局都是 6-8 人" and asked to focus there.
   An audit of the drop-clean dataset confirms it: head-count buckets are

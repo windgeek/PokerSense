@@ -70,3 +70,47 @@ def test_normalization_ignored_for_adb(monkeypatch):
     backend = live.build_capture_backend("adb", normalization="should-be-ignored")
     assert captured["adb"] is True
     assert backend is not None
+
+
+def test_capture_card_pipeline_selects_independent_profile(monkeypatch):
+    selected = {}
+
+    def reject_uncalibrated(platform, layout):
+        selected["profile"] = (platform, layout)
+        raise live.LiveCaptureError("uncalibrated")
+
+    monkeypatch.setattr(live, "load_calibration", reject_uncalibrated)
+
+    with pytest.raises(live.LiveCaptureError, match="uncalibrated"):
+        live.build_pipeline(source="capture-card")
+
+    assert selected["profile"] == (
+        live.CAPTURE_CARD_PLATFORM,
+        live.CAPTURE_CARD_LAYOUT,
+    )
+
+
+def test_capture_card_pipeline_rejects_foreign_profile():
+    with pytest.raises(live.LiveCaptureError, match="independent"):
+        live.build_pipeline(
+            source="capture-card",
+            platform="wepoker",
+            layout="some-h5-layout",
+        )
+
+
+def test_adb_pipeline_rejects_capture_card_profile():
+    with pytest.raises(live.LiveCaptureError, match="ADB source"):
+        live.build_pipeline(
+            source="adb",
+            platform=live.CAPTURE_CARD_PLATFORM,
+            layout=live.CAPTURE_CARD_LAYOUT,
+        )
+
+
+def test_explicitly_uncalibrated_profile_fails_closed():
+    with pytest.raises(live.LiveCaptureError, match="explicitly uncalibrated"):
+        live.load_calibration(
+            live.CAPTURE_CARD_PLATFORM,
+            live.CAPTURE_CARD_LAYOUT,
+        )

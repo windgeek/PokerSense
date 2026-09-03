@@ -34,6 +34,15 @@ def test_normalization_config_rejects_empty_crop():
         )
 
 
+@pytest.mark.parametrize(
+    "crop",
+    [(-1, 0, 10, 10), (0.5, 0, 10, 10), (False, 0, 10, 10)],
+)
+def test_normalization_config_rejects_invalid_crop_coordinates(crop):
+    with pytest.raises((TypeError, ValueError)):
+        NormalizationConfig(rotate_degrees=0, crop_after_rotation=crop)
+
+
 def test_normalization_config_rejects_invalid_color_transform():
     with pytest.raises(ValueError):
         NormalizationConfig(rotate_degrees=0, color_transform="auto")
@@ -54,6 +63,13 @@ def test_normalization_config_rejects_unsupported_schema():
     with pytest.raises(ValueError):
         NormalizationConfig.from_dict(
             {"schema_version": 99, "rotate_degrees": 0}
+        )
+
+
+def test_normalization_config_rejects_non_boolean_mirror():
+    with pytest.raises(TypeError, match="mirror_horizontal"):
+        NormalizationConfig.from_dict(
+            {"rotate_degrees": 0, "mirror_horizontal": "false"}
         )
 
 

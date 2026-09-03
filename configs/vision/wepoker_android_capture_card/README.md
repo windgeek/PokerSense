@@ -4,9 +4,10 @@
 
 ## 状态：NOT CALIBRATED
 
-本目录目前只有一份**状态清单** `calibration.json`（`status: "uncalibrated"`）。它
-**不含任何**字段测量（ROI、阈值、样本数、置信度），也**不得**继承
-`wepoker_android`（LDPlayer）或 `wepoker`（H5）的任何结论。
+`calibration.json` 仍是 `status: "uncalibrated"`：目前虽已落地 Hero/Board
+槽位与部分 TableMap 实测几何，但还没有达到可供生产识别使用的字段模板、阈值、
+锁定验证样本数和置信度结论。任何缺失证据都**不得**继承
+`wepoker_android`（LDPlayer）或 `wepoker`（H5）。
 
 ## 已就绪（代码层）
 
