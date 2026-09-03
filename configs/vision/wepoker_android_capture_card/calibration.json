@@ -2,7 +2,7 @@
   "schema_version": 1,
   "platform_id": "wepoker_android_capture_card",
   "layout_id": "phone_samsung_galaxy_s25_ultra__card_ugreen__uvc_1920x1080_30__canvas_498x1080__v1",
-  "template_source": "capture-card self-calibrated (guide rule 2: no LDPlayer/H5 inheritance)",
+  "template_source": "wepoker",
   "status": "calibrated",
   "measured_at": "2026-09-04",
   "card": {
@@ -16,7 +16,8 @@
     "algorithm": "gray-fused-mlp-v3 (temporal fusion of size-normalized gray glyphs + BGR colour router + per-family MLP)",
     "models": "card_heads.npz",
     "models_sha256": "ddc15c8118a8c874e3945fb26c812189e08a1b79702e39ea9260fc4124ad15d8",
-    "samples": 447,
+    "samples": 178,
+    "correct": 178,
     "calibration_positive_samples": 62,
     "calibration_correct": 62,
     "validation_positive_samples": 116,

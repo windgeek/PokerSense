@@ -134,6 +134,23 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-09-04 — fused card pipeline WIRED end-to-end into live.py:** the
+  fused recognizer is no longer only a landed artifact — it now replaces the
+  legacy single-frame matcher at load time for the capture-card platform.
+  `load_calibration` builds a `FusedCardRecognizerAdapter` (per-slot temporal
+  fusion behind the stateless `CardRecognizer` protocol) whenever
+  `card_heads.npz` + the `card_fused` calibration are present, and
+  `load_measured_calibrations` promotes `card_fused` to the platform's `card`
+  measurement (floor=suit_floor=0.3, Wilson confidence 0.985). The stateful
+  recognizer requires a fixed canvas, so the hero dynamic-coordinate fallback
+  (a WePoker-H5 "browser toolbar shifted the ROI" affordance) is disabled for
+  the fused platform — otherwise the same slot's buffer would receive two
+  different crops per frame and reset itself. Verified on the private
+  corpus through the real `vision.process` path: fused hero cards read
+  **7/7 correct across the 7 hands with >=3 gated frames, 0 wrong** (the rest
+  abstain on under-sampled fusion, as designed). `fused_card_adapter.py` +
+  engine/live wiring + 2 adapter tests (1666 passed, flake8 clean).
+
 - **2026-09-04 — FULL card recognition UNBLOCKED in software (no hardware
   change); locked splits 100%:** the "suits physically unresolvable at
   53x78" verdict is reversed. Root causes were in OUR pipeline, not the

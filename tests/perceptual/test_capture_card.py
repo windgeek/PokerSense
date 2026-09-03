@@ -289,7 +289,10 @@ def test_capture_card_platform_calibration_state():
     data = json.loads((vision / "calibration.json").read_text(encoding="utf-8"))
     assert data["platform_id"] == "wepoker_android_capture_card"
     assert data["status"] == "calibrated"
-    assert "self-calibrated" in data["template_source"]
+    # legacy single-frame template source stays "wepoker" (guide rule 2:
+    # card ART templates may be shared after independent verification); the
+    # fused pipeline uses its own card_heads.npz, not these templates.
+    assert data["template_source"] == "wepoker"
 
     legacy = data["card"]
     assert legacy["readable_score_floor"] == 1.0

@@ -251,3 +251,62 @@ def test_production_heads_load_and_predict():
 def test_load_card_heads_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_card_heads(tmp_path / "nope.npz")
+
+
+# --- FusedCardRecognizerAdapter ---------------------------------------------
+
+
+def test_adapter_requires_slot_identity_and_accumulates_accross_frames():
+    from poker_engine.perceptual.vision.fused_card_adapter import (
+        FusedCardRecognizerAdapter,
+    )
+    from poker_engine.perceptual.vision.fused_card_recognizer import (
+        FusedCardRecognizer,
+    )
+
+    # real production heads, if present; otherwise skip the accumulation check
+    if not HEADS.is_file():
+        pytest.skip("card_heads.npz not exported")
+    heads = load_card_heads(HEADS)
+    adapter = FusedCardRecognizerAdapter(
+        FusedCardRecognizer(heads, rank_floor=0.0, suit_floor=0.3)
+    )
+
+    # no slot identity -> fail closed, nothing accumulated
+    card = _roi_with_card(BOX, "S", color=(10, 10, 10))
+    x0, y0, x1, y1 = BOX
+    sub = card[y0:y1, x0:x1]
+    assert adapter.recognize(sub).value is None
+    assert adapter.recognize(sub, None).value is None
+
+    # a real slot identity accumulates across identical frames (same crop)
+    adapter.reset()
+    rec = None
+    for _ in range(3):
+        rec = adapter.recognize(sub, ("hero", 0))
+    buf = adapter._buffers.get(("hero", 0))
+    assert buf is not None and buf.glyph_count >= 3
+    assert rec is not None  # fused result is a CardRecognition (value may be
+    # None only if margins didn't clear — the glyph accumulation itself must
+    # have happened)
+
+
+def test_adapter_keeps_hero_and_board_slots_separate():
+    from poker_engine.perceptual.vision.fused_card_adapter import (
+        FusedCardRecognizerAdapter,
+    )
+
+    if not HEADS.is_file():
+        pytest.skip("card_heads.npz not exported")
+    heads = load_card_heads(HEADS)
+    from poker_engine.perceptual.vision.fused_card_recognizer import (
+        FusedCardRecognizer,
+    )
+
+    adapter = FusedCardRecognizerAdapter(FusedCardRecognizer(heads))
+    card = _roi_with_card(BOX, "S", color=(10, 10, 10))
+    x0, y0, x1, y1 = BOX
+    sub = card[y0:y1, x0:x1]
+    adapter.recognize(sub, ("hero", 0))
+    adapter.recognize(sub, ("board", 0))
+    assert set(adapter._buffers) == {("hero", 0), ("board", 0)}
