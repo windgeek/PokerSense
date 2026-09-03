@@ -134,6 +134,35 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-09-04 — FULL card recognition UNBLOCKED in software (no hardware
+  change); locked splits 100%:** the "suits physically unresolvable at
+  53x78" verdict is reversed. Root causes were in OUR pipeline, not the
+  pixels: (1) the HSV-hue colour router is undefined for black ink (hue
+  noise lands in the red range) — replaced with a BGR (R-B) ink test,
+  perfectly bimodal on the corpus (black=0, red>=35) → colour family
+  450/450; (2) the aspect-fit letterbox rescaled+repositioned every glyph
+  independently, so temporal fusion blurred a club's three lobes into a
+  spade shape — replaced with fixed-height size normalisation + ink-
+  centroid anchoring + phase-correlation registration; (3) the board-strip
+  street gate cannot tell two hands apart at PRE_FLOP (an empty board is
+  identical), so the NEXT hand's hero glyphs bled into the fusion (an 8S
+  averaged into a clear K ghost, faint-Q dilutions) — fixed with a
+  per-slot card-region gate; (4) ~3% of card labels carried a wrong suit
+  — a classifier-vs-label disagreement audit with crop-by-crop visual
+  confirmation corrected 37 suit labels + 1 hero order swap (backups
+  kept). On the fused grayscale glyphs: sklearn MLP heads (rank 13-class
+  softmax 32-hidden; per-colour-family binary logistic 24-hidden;
+  shift/scale/brightness augmentation) read the FULL card at
+  **calibration 62/62, locked validation 116/116, zero false VALID**.
+  Landed: `perceptual/vision/fused_card_recognizer.py` (numpy-only MLP
+  forward, FusedSlotBuffer street+slot gating, fail-closed floors),
+  `configs/vision/wepoker_android_capture_card/card_heads.npz`(+meta),
+  `calibration.json` card_fused block (legacy single-frame path stays
+  fail-closed at floor=1.0 by design), 15 tests. Method/evidence:
+  `_stage_i_gray_fused.py` + `evidence/field_metrics.json`; label audit
+  `_fix_suit_labels.py`. Next: online temporal fusion wiring into the
+  live frame loop (end-to-end on the capture card).
+
 - **2026-09-04 — stages J/K/L closed; card suits stay BLOCKED at full scale:**
   the fused stage-I pipeline ran end-to-end on the locked splits
   (`_stage_i_fused.py`, private log `_mining/stage_i_fused_run.log`):
