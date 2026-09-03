@@ -134,6 +134,60 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-09-04 — stages J/K/L closed; card suits stay BLOCKED at full scale:**
+  the fused stage-I pipeline ran end-to-end on the locked splits
+  (`_stage_i_fused.py`, private log `_mining/stage_i_fused_run.log`):
+  calibration 65 positives = 54 correct / 11 wrong, and **all 11 errors are
+  same-colour suit confusions (D<->H, C<->S)** — four at margin 0.000 (S/C
+  template scores identical) and the rest *confidently* wrong (margins up to
+  0.88), so no threshold yields recall at zero false VALID; the fail-closed
+  gate correctly abstains on everything (recall 0%). Rank alone is 96.9%
+  and red/black family is ~100% when rank is right — the reliable delivery
+  boundary. Exact suits are physically unresolvable at 53x78 on this
+  canvas; unblocking them means a higher-resolution card region (e.g. a 4K
+  UVC negotiate + a redone stage I), which is an owner decision. Until then
+  hero_cards/board_cards remain UNKNOWN (fail-closed, as designed).
+- **2026-09-04 — stage J (seat mapping) done:** new
+  `tools/capture_card_calibration/seat_mapping.py` builds the platform's
+  identity slot->seat contract (hero = seat 0, ascending slot = direction
+  of play, evidenced by the dealer badge advancing 2->4->7->1->2->4 across
+  session_002 hands) plus fail-closed reducers (`derive_canonical_dealer`:
+  zero badges -> UNKNOWN, multiple -> CONFLICT; EMPTY+stack ->
+  `SeatConsistencyError`). A latent occupancy bug was fixed in
+  `seat_reader.read_slot`: an ambiguous band (dimmed "away" avatar, or the
+  hero band whose white hand-type text false-fires the "+" cross detector)
+  used to be read EMPTY — a wrong positive claim that mutates seat state.
+  EMPTY now requires the positive cross signal and the hero slot never
+  uses the avatar/cross path: re-measured on the private corpus, occupancy
+  is **893 correct / 59 abstain / 0 wrong (100% precision, 93.8% recall)**
+  and dealer stays **576/576**. Evidence: private
+  `geometry/seat_mapping.draft.json` + `evidence/seat_mapping.json`;
+  41 tests in `tests/tools/test_capture_card_seat_mapping.py`.
+- **2026-09-04 — stage K (replay + performance) done:** replay draft for
+  the real hand `session_002_hand_0117` (6-8 handed, owner direction) runs
+  through `load_capture_replay` / `run_capture_replay` with label-derived
+  expectations: **6 frames, 0 mismatches** — 3 EXACT (fold, street_change,
+  fold), 2 INVALID (chip actions correctly fail closed with
+  `actor_stack_missing_for_chip_action`), 1 NO_ACTION snapshot. Draft +
+  report: private `replay/capture_card_hand_0117/` and
+  `evidence/replay_report.json`; `release_eligible=false` recorded
+  verbatim (not raw_frame stage; field calibrations not landed). Measured
+  performance (recorded as-is, no release threshold implied): UVC decode
+  30.1 fps / 0 drops over 300 frames (black stream — phone detached),
+  normalization p50 0.4 ms / p95 0.61 ms, 8-slot seat recognition p50
+  82.5 ms / p95 153.2 ms (fits the ~10 fps effective budget, exceeds a
+  33 ms one); 30-min continuous run, hot-plug and multi-device selection
+  are marked not-measured (no signal attached).
+- **2026-09-04 — stage L (seat mapping landed):** the stage-J contract is
+  now a production resource,
+  `configs/platform/wepoker_android_capture_card__<layout_id>_seat_mapping.json`,
+  loading through `live.load_platform_seat_mapping`; resource /
+  serialization / builder-parity tests pin it (the landed file, the
+  stage-J builder and both loaders must never diverge). Card-related
+  vision configs intentionally stay uncalibrated skeletons (stage I
+  blocked); docs updated. Remaining open items: owner decision on suits
+  (4K recapture vs rank+colour delivery), then end-to-end live wiring.
+
 - **2026-09-03 — owner focus: 6-8 handed table is the calibration primary
   direction.** The owner stated "90% 的牌局都是 6-8 人" and asked to focus there.
   An audit of the drop-clean dataset confirms it: head-count buckets are
