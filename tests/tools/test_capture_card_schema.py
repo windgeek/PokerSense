@@ -272,7 +272,8 @@ def test_device_require_ready_fails_closed():
 
 
 def test_device_require_min_sessions():
-    with pytest.raises(SchemaError, match="at least 3 independent"):
+    # Floor is now 2 (owner-authorised waiver of the third session).
+    with pytest.raises(SchemaError, match="at least 2 independent"):
         _device().require_min_sessions()
 
 
@@ -459,6 +460,73 @@ def test_frame_entry_requires_a_sampling_reason():
             scene=Scene.TABLE,
             group_id="g",
             reason="",
+        )
+
+
+def _entry(**overrides: object) -> dataset.FrameEntry:
+    base = {
+        "file": "session_002__t_00003500__f_000105__8e55a6c8b73b.png",
+        "sha256": "a" * 64,
+        "source_video_id": "session_002",
+        "timestamp_ms": 3500,
+        "source_frame": 105,
+        "normalization_version": "capture-card-normalization-v1",
+        "stable": True,
+        "scene": Scene.TABLE,
+        "group_id": "session_002__scene_table",
+        "reason": "stable_table",
+    }
+    base.update(overrides)
+    return dataset.FrameEntry.from_dict(base)
+
+
+def test_build_frame_label_skeleton_is_all_unknown():
+    label = dataset.build_frame_label_skeleton(
+        _entry(), hand_id="session_002_hand_0001", reviewer="tester"
+    )
+    assert label.hand_id == "session_002_hand_0001"
+    assert label.hero_cards.status is LabelStatus.UNKNOWN
+    assert label.hero_cards.value is None
+    assert label.board_cards.status is LabelStatus.UNKNOWN
+    assert label.street.status is LabelStatus.UNKNOWN
+    assert label.pot.status is LabelStatus.UNKNOWN
+    assert len(label.slots) == 8
+    assert [slot.slot_id for slot in label.slots] == list(range(8))
+    for slot in label.slots:
+        assert slot.occupancy.status is LabelStatus.UNKNOWN
+        assert slot.stack.status is LabelStatus.UNKNOWN
+        assert slot.dealer.status is LabelStatus.UNKNOWN
+        assert slot.completed_action.status is LabelStatus.UNKNOWN
+        assert slot.current_actor.status is LabelStatus.UNKNOWN
+    assert label.review.reviewer == "tester"
+    assert label.review.method == "manual_source_pixels"
+
+
+def test_build_frame_label_skeleton_rejects_placeholder_reviewer():
+    with pytest.raises(SchemaError, match="real reviewer"):
+        dataset.build_frame_label_skeleton(
+            _entry(), hand_id="h", reviewer="REPLACE_ME"
+        )
+
+
+def test_build_frame_label_skeleton_rejects_unstable_frame():
+    with pytest.raises(SchemaError, match="unstable frame"):
+        dataset.build_frame_label_skeleton(
+            _entry(stable=False), hand_id="h", reviewer="tester"
+        )
+
+
+def test_build_frame_label_skeleton_roundtrips_through_json():
+    label = dataset.build_frame_label_skeleton(
+        _entry(), hand_id="session_002_hand_0001", reviewer="tester"
+    )
+    assert dataset.FrameLabel.from_json(label.to_json()) == label
+
+
+def test_build_frame_label_skeleton_requires_real_reviewer():
+    with pytest.raises(SchemaError, match="real reviewer"):
+        dataset.build_frame_label_skeleton(
+            _entry(), hand_id="h", reviewer="  "
         )
 
 

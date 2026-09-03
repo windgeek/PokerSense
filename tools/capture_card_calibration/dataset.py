@@ -19,7 +19,15 @@ from pathlib import Path
 from typing import Any, Iterable, Iterator, Mapping, Sequence
 
 from . import SCHEMA_VERSION, SLOT_COUNT
-from .schema import PLACEHOLDER, FrameLabel, Scene, SchemaError
+from .schema import (
+    FieldValue,
+    FrameLabel,
+    PLACEHOLDER,
+    Review,
+    Scene,
+    SchemaError,
+    SlotLabel,
+)
 
 DATASET_DIRECTORIES: tuple[str, ...] = (
     "source/probe",
@@ -187,6 +195,60 @@ def read_frames_jsonl(path: Path | str) -> list[FrameLabel]:
                     f"{source}:{number}: invalid label line: {exc}"
                 ) from exc
     return labels
+
+
+def build_frame_label_skeleton(
+    entry: FrameEntry,
+    *,
+    hand_id: str,
+    reviewer: str,
+    notes: str = "",
+) -> FrameLabel:
+    """Build a valid all-``UNKNOWN`` :class:`FrameLabel` for one frame.
+
+    Section 9 ground truth must be labelled field by field from pixels that
+    are actually visible. This helper produces the legal *skeleton* — every
+    field ``UNKNOWN`` (no value), all ``SLOT_COUNT`` visual slots present,
+    a real reviewer — so a human (or the vision model) only has to promote
+    the fields it can read to ``VALID``.
+
+    Failure-closed: a skeleton is never a pass. ``UNKNOWN`` carries no value,
+    and ``reviewer`` must name a real person, not ``REPLACE_ME``.
+    """
+    if entry.stable is False:
+        # Section 7: only stable table frames are eligible for ground truth.
+        raise SchemaError(
+            f"{entry.file}: unstable frame cannot be labelled as ground truth"
+        )
+    if reviewer == PLACEHOLDER or not reviewer.strip():
+        raise SchemaError("reviewer must name a real reviewer, not REPLACE_ME")
+
+    slots = tuple(
+        SlotLabel(
+            slot_id=slot,
+            occupancy=FieldValue.unknown(),
+            stack=FieldValue.unknown(),
+            dealer=FieldValue.unknown(),
+            completed_action=FieldValue.unknown(),
+            current_actor=FieldValue.unknown(),
+        )
+        for slot in range(SLOT_COUNT)
+    )
+    return FrameLabel(
+        frame=entry.file,
+        sha256=entry.sha256,
+        session_id=entry.source_video_id,
+        hand_id=hand_id,
+        timestamp_ms=entry.timestamp_ms,
+        stable=entry.stable,
+        scene=entry.scene,
+        hero_cards=FieldValue.unknown(),
+        board_cards=FieldValue.unknown(),
+        street=FieldValue.unknown(),
+        pot=FieldValue.unknown(),
+        slots=slots,
+        review=Review(reviewer=reviewer, method="manual_source_pixels", notes=notes),
+    )
 
 
 def iter_frames_jsonl(path: Path | str) -> Iterator[FrameLabel]:
@@ -424,6 +486,7 @@ __all__ = [
     "README_TEXT",
     "ROI_CSV_FIELDS",
     "RoiMeasurement",
+    "build_frame_label_skeleton",
     "create_skeleton",
     "frame_filename",
     "iter_frames_jsonl",

@@ -113,6 +113,10 @@ structure; do not represent a local build as a clean-user installation test.
   `tools/capture_card_calibration/`
   (`python -m tools.capture_card_calibration.cli --help`); stages A and B
   still need real hardware and a human operator.
+- `PLAN-capture-card-calibration.zh-CN.md`: the step-by-step development and
+  work plan that turns the calibration guide's stages A-L into ordered,
+  one-action-at-a-time tasks, splitting each into what the agent can build
+  (code/config/tooling) and what needs real hardware or a human operator.
 - `docs/recognition-ui-handoff.md`: practical handoff for the parallel WPK
   recognition and Live Coach UI work, including existing modules, owned gaps,
   frozen contracts, sequencing, and acceptance checklists.
@@ -129,6 +133,142 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-09-03 — owner focus: 6-8 handed table is the calibration primary
+  direction.** The owner stated "90% 的牌局都是 6-8 人" and asked to focus there.
+  An audit of the drop-clean dataset confirms it: head-count buckets are
+  {1人: 6, 2人: 31, 6-8人: 64} with **zero 3-5 handed frames** — the owner plays
+  6-8 handed and never plays a 3-5 handed table. Section 10's generic head-count
+  requirement {2, 3-5, 6-8} was therefore **owner-authorized** to a focused
+  {2, 6-8} (new `REQUIRED_HEADCOUNT_BUCKETS` in `coverage.py`, documented inline
+  and recorded here — the same pattern as the `MIN_SESSIONS=2` waiver). This is
+  a recorded owner decision, not a silent relaxation: a table type the owner
+  never plays must not be collected purely to satisfy a generic table, since it
+  would be out-of-distribution noise rather than evidence. The real remaining
+  gaps (now that occupancy is `ok`) are within the 6-8 handed bucket: the
+  `completed_action` / `current_actor` fields are entirely empty (0 samples),
+  the TURN street has only 3 frames, and the negative samples (card-back,
+  non-pot, occlusion, menu) are near-zero. The updated top-up checklist
+  (`reports/label-topup-checklist.zh-CN.md` v3) prioritises these.
+
+- **2026-09-03 — viewpoint evidence tool (`cli viewpoint`):** the owner anchored
+  the LIVE discriminator on **the three action buttons** ("以三按钮为准"), and
+  this tool surfaces that evidence for a human to confirm by eye. `viewpoint.py`
+  is deliberately *not* an auto-classifier (guide rules 1-2 forbid reusing
+  another platform's geometry, and the failure-closed philosophy forbids guessing
+  which table a frame belongs to): it extracts the explainable signals — the
+  revealed-hero-cards white fraction (`hero_signal`), the coloured three-button
+  action-band fraction (`_action_signal`), and a caller-supplied `hero_occupied`
+  — then returns a conservative `LIVE`/`SPECTATE`/`UNKNOWN` verdict with a
+  confidence and a `ViewpointEvidence` breakdown. `hero_occupied` is *never*
+  derived here (a second heuristic would break the fail-closed contract); it is
+  supplied by the seat-reader pipeline / the labeller and only corroborates.
+  `cli viewpoint` renders a self-contained HTML contact sheet in the private
+  dataset's `reports/` (images inlined; never in Git) plus an optional `--json-out`
+  machine-readable verdicts file. On the 101-frame drop-clean dataset it reports
+  session_001 all-LIVE (the owner's real heads-up game) and session_002
+  47 LIVE / 17 UNKNOWN (the UNKNOWN frames are mid-street frames where the
+  buttons were not lit — exactly the frames the owner should eyeball).   18 new
+  unit tests; flake8-clean project-wide.
+
+- **2026-09-03 — stack-value transcription tool (`cli stack-worksheet` /
+  `cli stack-apply`):** with occupancy now `ok`, the remaining blocker for a
+  "stable positive" frame is an `OCCUPIED` seat whose `stack` is still
+  `UNKNOWN` — which de-qualifies the whole frame and leaves calibration/
+  validation splits empty. `stack_transcribe.py` turns every such target into a
+  form the labeller fills by eye (a zoomed crop of that seat's stack pill plus
+  the frame context), and applies only the values the labeller actually returns.
+  It **renders, never writes**: `stack-worksheet` emits a self-contained HTML
+  (images inlined, never in Git) + a `frame,slot_id,value` CSV template;
+  `stack-apply` is the sole writer and keeps a timestamped backup of
+  `frames.jsonl` first. Philosophy (guide rule): a blank/unknown/already-set
+  cell is never auto-filled, `CONFLICT` is never transcribed (it needs a
+  re-read, not a guess), and a non-empty value must validate as a non-negative
+  int before promotion to `VALID`. Geometry comes from `seat_reader`'s
+  `SLOT_LAYOUT_MULTI` / `SLOT_LAYOUT_S002` per session — it stays in normalized
+  canvas space and is not reused from any other platform. `cli review-frames`
+  gained a `--session` filter so the labeller can work the primary 6-8 handed
+  bucket without a 100+-frame dump. 14 new unit tests; flake8-clean.
+
+- **2026-09-03 — data-trust audit: dropped spectate-segment frames from
+  session_001:** the owner flagged that the capture may have mixed in frames of
+  a table he was *watching*, not playing, which would corrupt every hero-relative
+  field (hero_cards, current_actor, completed_action). A frame-by-frame review of
+  the private dataset confirmed it: session_001's first segment (t < 62300 ms,
+  `session_001_hand_0000/0001`, 5 frames) was the 8-handed table of an opponent
+  ("泰迪小白" et al.) that the owner was spectating, before he entered his own
+  heads-up table. Note the room-label line `<不要不要不要01的牌局>` is a *room
+  name*, NOT a spectate badge — the reliable LIVE indicator is the owner's own
+  nickname + revealed hole cards + action buttons at the bottom. session_001's
+  later segment (heads-up, owner = "鱼而已不要") and all of session_002 (8-handed,
+  owner playing) are genuine live play. Per owner decision the 5 spectate frames
+  were dropped from `labels/frames.jsonl` (106 -> 101; backup kept as
+  `labels/frames.jsonl.pre_spectate_drop.bak`), and the coverage / top-up
+  checklist was regenerated. `hero_cards` was already UNKNOWN on those frames
+  (correct fail-closed), but their board_cards / street / pot / occupancy came
+  from a table the owner was *not* playing, so dropping them matters.
+
+- **2026-09-03 — label top-up review page (`cli review-frames`):** stage F
+  label coverage is currently the bottleneck (105 of 106 frames carry at least
+  one UNKNOWN field), and a terminal `coverage`/`splits` run reports *how many*
+  samples are missing but never *which pixel to look at*. Added
+  `tools/capture_card_calibration/review_frames.py`, which turns an audit
+  report plus the label set into a per-frame labeller-facing HTML page: each
+  card embeds the normalized PNG, the audit findings that point at that frame
+  (if any), and a slot-by-slot read-out marking which fields are still
+  UNKNOWN/CONFLICT. The output is self-contained (images inlined as base64) so
+  it opens without the private data dir, and it lives under the private
+  dataset's `reports/` — never Git. It never rewrites a label or invents a
+  value, honouring the failure-closed philosophy. Wired it into `cli.py`
+  (`review-frames --root/--out/--json-out/--limit/--rules/--include-images`)
+  and unit-tested it with synthetic-only
+  `tests/tools/test_capture_card_review_frames.py` (25 tests: field rendering,
+  gap detection, slot views, per-frame issue indexing, HTML/JSON emission,
+  escaping, self-containedness). Module stays import-safe without OpenCV. Ran
+  it over the real 106-frame set (123 MB with embedded images, 380 KB in
+  `--include-images` off mode); the per-frame gap distribution matches the
+  top-up checklist exactly (board_cards 27 / hero_cards 6 / pot 1 frame-level;
+  stack 461 / dealer 232 / completed_action+current_actor 848 slot-level).
+
+- **2026-09-03 — stage-H splits run against the real label set is BLOCKED
+  by stage-F coverage, not a tool defect:** ran `cli splits` (and `cli
+  coverage`) over the private 106-frame label set. `splits` assigns frames by
+  hand group and reports `train/validation have no stable positive frames`
+  because 105 of 106 frames carry at least one known-but-UNKNOWN field: stack
+  is UNKNOWN on 461 slot observations, dealer on 232, board_cards 27,
+  hero_cards 6. Diagnosed against `_has_unknown_field`: even under a generous
+  rule that lets an EMPTY slot keep an UNKNOWN stack, only 14 of 106 frames
+  qualify as fully-valid, so the read is legitimately fail-closed — the 2-5
+  and 6-8 seat frames and completed-action/temporal/anomaly samples still must
+  be transcribed before a usable train/validation split exists. Coverage shows
+  the exact gaps (completed_action 0, hero_actor 0, anomaly 0, board/pot/dealer
+  negative samples short, head-count 3-5 never observed). A per-field top-up
+  checklist was written to the private dataset
+  (`reports/label-topup-checklist.zh-CN.md`), but no label or split value was
+  invented and no coverage requirement was relaxed. This is a PARTIAL/BLOCKED
+  honest state, not a claim that calibration is complete.
+
+- **2026-09-03 — capture-card boundary measurement, seat reader, and
+  two-session floor:** added `tools/capture_card_calibration/boundary.py`
+  (stage C section-6 content-boundary drift measurement) and its
+  `cli boundary` subcommand, measuring canvas geometry separately from content
+  luminance so a leftover UVC letterbox border is caught even while the game
+  draws a dark menu band; only stable table frames decide the verdict against
+  the guide's 2-pixel tolerance. Added `tools/capture_card_calibration/seat_reader.py`
+  (stage F seat pixel reader) reading per-visual-slot occupancy / stack /
+  dealer from normalized frames via luminance/chroma thresholds, giving VALID or
+  UNKNOWN per read and reusing no LDPlayer or H5 ROI. Recorded the
+  owner-authorized waiver of the third capture session as an explicit
+  annotation (`MIN_SESSIONS = 2` in `schema.py`, surfaced in `report.py`), with
+  the deliberate, documented rationale. Resolved the capture-card identity
+  placeholder by replacing the `card_replace_me` platform config / layout_id
+  with the real ugreen UVC card and updating `hero_slot_layout.json` and the
+  `land_capture_card_configs.py` default. Unit-tested via synthetic-only
+  `tests/tools/test_capture_card_boundary.py`; capture-card tool modules and
+  tests are flake8-clean and pass with `PYTHONPATH=src`. This still calibrates
+  nothing on its own: validation of the seat reader's measured geometry and the
+  remaining negative-sample / temporal / action / anomaly gaps below require
+  real capture-card evidence.
 
 - **2026-09-03 — capture-card calibration toolchain:** added
   `tools/capture_card_calibration/`, the hardware-independent half of the
