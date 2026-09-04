@@ -75,6 +75,11 @@ from poker_engine.perceptual.vision.corner_glyph_recognizer import (
 )
 from poker_engine.perceptual.vision.engine import VisionEngine
 from poker_engine.perceptual.vision.errors import TableMapError
+from poker_engine.perceptual.vision.fused_card_adapter import FusedCardRecognizerAdapter
+from poker_engine.perceptual.vision.fused_card_recognizer import (
+    FusedCardRecognizer,
+    load_card_heads,
+)
 from poker_engine.perceptual.vision.hero_turn_recognizer import (
     AndroidHeroTurnRecognizer,
 )
@@ -234,7 +239,13 @@ def load_measured_calibration(vision_dir: Path) -> MeasuredCalibration:
 def load_measured_calibrations(
     vision_dir: Path,
 ) -> dict[str, MeasuredCalibration]:
-    """Load every independently measured field calibration in a profile."""
+    """Load every independently measured field calibration in a profile.
+
+    The capture-card platform calibrates cards with the temporal-fusion
+    pipeline under ``card_fused`` (the legacy single-frame ``card`` block is
+    kept at floor=1.0 as a deliberate fail-closed guard). When ``card_fused``
+    is present it takes precedence as the platform's ``card`` measurement.
+    """
     path = vision_dir / "calibration.json"
     if not path.is_file():
         raise LiveCaptureError(f"no calibration measurement at {path}")
@@ -247,12 +258,27 @@ def load_measured_calibrations(
         field = data.get(name)
         if field is None:
             continue
+        if name == "card" and "card_fused" in data:
+            # The fused pipeline is the platform's real card measurement; the
+            # legacy single-frame ``card`` block is a fail-closed placeholder
+            # (floor == ceiling == 1.0) that ``MeasuredCalibration`` would
+            # reject. Skip it and take the fused block below.
+            continue
         measured[name] = MeasuredCalibration(
             samples=field["samples"],
             correct=field["correct"],
             readable_score_floor=field["readable_score_floor"],
             unreadable_score_ceiling=field["unreadable_score_ceiling"],
             source=field["source"],
+        )
+    fused = data.get("card_fused")
+    if fused is not None:
+        measured["card"] = MeasuredCalibration(
+            samples=fused["samples"],
+            correct=fused["correct"],
+            readable_score_floor=fused["suit_floor"],
+            unreadable_score_ceiling=0.0,
+            source=fused["source"],
         )
     if "card" not in measured:
         raise LiveCaptureError(f"card calibration missing at {path}")
@@ -350,9 +376,15 @@ def load_calibration(
     if not calibration_path.is_file():
         raise LiveCaptureError(f"no calibration measurement at {calibration_path}")
     calibration_data = json.loads(calibration_path.read_text())
-    if calibration_data.get("status") == "uncalibrated":
+    calibration_status = calibration_data.get("status")
+    if calibration_status == "uncalibrated":
         raise LiveCaptureError(
             f"recognition profile {platform}/{layout} is explicitly uncalibrated"
+        )
+    if calibration_status not in {None, "partial", "calibrated"}:
+        raise LiveCaptureError(
+            f"recognition profile {platform}/{layout} has invalid status "
+            f"{calibration_status!r}"
         )
     template_source = calibration_data.get("template_source", platform)
     template_dir = _REPO_ROOT / "configs" / "vision" / template_source
@@ -367,6 +399,36 @@ def load_calibration(
             version=f"{platform}-{layout}-v1",
         )
     )
+
+    # Capture-card platform: the temporal-fusion recognizer supersedes the
+    # single-frame matcher whenever its measured ``card_fused`` calibration
+    # and exported heads are present. Failure to load the heads keeps the
+    # legacy (fail-closed, floor=1.0) path rather than half-wiring the fused
+    # pipeline — a missing model file must never silently downgrade to a
+    # loosened single-frame gate.
+    fused_card_pipeline = False
+    calibrated = calibration_data.get("card_fused")
+    if calibrated is not None:
+        model_name = calibrated.get("models")
+        if not isinstance(model_name, str) or Path(model_name).name != model_name:
+            raise LiveCaptureError("invalid fused-card model path in calibration")
+        try:
+            heads = load_card_heads(
+                vision_dir / model_name,
+                expected_sha256=calibrated.get("models_sha256"),
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise LiveCaptureError(
+                f"fused-card model failed integrity validation: {exc}"
+            ) from exc
+        card_recognizer = FusedCardRecognizerAdapter(
+            FusedCardRecognizer(
+                heads,
+                rank_floor=calibrated.get("rank_floor", 0.0),
+                suit_floor=calibrated.get("suit_floor", 0.3),
+            )
+        )
+        fused_card_pipeline = True
 
     board_layout_path = vision_dir / "board_slot_layout.json"
     if board_layout_path.is_file():
@@ -504,6 +566,7 @@ def load_calibration(
         dealer_recognizer=dealer_recognizer,
         empty_slot_recognizer=empty_slot_recognizer,
         actor_recognizer=AndroidHeroTurnRecognizer(),
+        disable_hero_dynamic_fallback=fused_card_pipeline,
     )
     return table_map, engine
 
@@ -583,6 +646,11 @@ def build_pipeline(
             raise LiveCaptureError(
                 "capture-card source requires the independent "
                 f"{CAPTURE_CARD_PLATFORM!r} recognition profile"
+            )
+        if normalization is None:
+            raise LiveCaptureError(
+                "capture-card source requires its measured NormalizationConfig; "
+                "no production normalization artifact is committed yet"
             )
     elif source == "adb" and platform == CAPTURE_CARD_PLATFORM:
         raise LiveCaptureError(

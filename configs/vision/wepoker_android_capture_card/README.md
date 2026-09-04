@@ -4,10 +4,13 @@
 
 ## 状态：NOT CALIBRATED
 
-`calibration.json` 仍是 `status: "uncalibrated"`：目前虽已落地 Hero/Board
-槽位与部分 TableMap 实测几何，但还没有达到可供生产识别使用的字段模板、阈值、
-锁定验证样本数和置信度结论。任何缺失证据都**不得**继承
-`wepoker_android`（LDPlayer）或 `wepoker`（H5）。
+`calibration.json` 当前是 `status: "partial"`。Hero/Board 槽位、TableMap 实测
+几何、座位映射和 gray-fused-mlp-v3 牌面识别资产已经落地；生产管线可以加载并
+校验融合牌面模型。座位字段虽然已有标定工具与测量记录，但尚未接入生产
+`VisionEngine`，动作徽章读取器也尚未接入，因此这些字段继续输出 `UNKNOWN`。
+任何缺失证据都**不得**继承 `wepoker_android`（LDPlayer）或 `wepoker`（H5）。
+当前仓库也没有可供桌面默认加载的生产 normalization artifact；调用采集卡管线时
+必须显式提供经过测量的 `NormalizationConfig`，否则启动即拒绝。
 
 ## 已就绪（代码层）
 
@@ -24,10 +27,11 @@
 - `hero_slot_layout.json`：hero 2 槽，实测。
 - `board_slot_layout.json`：board 5 槽，实测（83 个 RIVER 帧、跨两个 session
   中位数稳定 ±1px）；配套平台配置的 `board_cards` ROI 已拓宽到完整 5 牌条带。
-- ⚠️ 识别标定仍未完成：H5（wepoker）角标模板在采集卡分辨率下**未通过**
-  花色验证（黑桃/梅花混淆且 raw score 高，无法用阈值门控），故
-  `template_source: wepoker` 不得用于花色。`calibration.json` 保持
-  `uncalibrated`，card 字段必须继续读出 UNKNOWN。
+- gray-fused-mlp-v3 融合牌面识别已通过当前锁定划分（calibration 62/62、
+  validation 116/116、零 false VALID）。运行时会核对模型 SHA-256；模型缺失、
+  损坏或元数据不匹配时，整个 Profile 明确拒绝加载，不会回退到旧模板。
+- H5（wepoker）角标模板仍不得作为采集卡花色识别依据；`template_source`
+  仅保留旧单帧路径，而该路径的 floor=1.0，保持关闭。
 
 ## 用录制工具做阶段 A/B
 
@@ -53,10 +57,10 @@ python -m tools.capture_card_calibration.cli record --root capture_card_calibrat
 2. **阶段 B**：录制 45–90 分钟真实对局素材。
 3. **阶段 C**：确定 `normalization.json`（旋转/裁剪/输出尺寸）。
 4. **阶段 D–G**：抽帧、ROI 测量、逐帧真值标签、最低覆盖。
-5. **阶段 H–I**：数据划分、模板与阈值标定。
-6. **阶段 J–K**：座位映射、Replay 与性能证据。
-7. **阶段 L**：把通过验收的 `configs/platform/wepoker_android_capture_card__<layout_id>.json`
-   、`_seat_mapping.json` 以及 `board/dealer/empty/hero_slot_layout.json`、
-   隐私安全模板落到本仓库，并接入 `live.py` 管线。
+5. **阶段 H–I**：牌面部分已完成；其余生产字段仍需数据划分、模板与阈值标定。
+6. **阶段 J–K**：座位映射已落地；仍需发布合格的 raw-frame Replay 与性能证据。
+7. **阶段 L**：牌面已接入；仍需把 seat/action 生产识别器、各字段 calibration、
+   隐私安全模板和完整 Replay 接入并通过验收。
 
-在阶段 L 完成前，任何基于本平台的识别都**必须**读出 `UNKNOWN`，不得宣称端到端可用。
+在阶段 L 完成前，仅已独立验证并接入的牌面字段可以产出 `VALID`；其余字段必须
+保持 `UNKNOWN`，不得宣称采集卡端到端可用或已经发布。

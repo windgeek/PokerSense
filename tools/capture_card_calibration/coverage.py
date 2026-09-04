@@ -56,6 +56,17 @@ TEMPORAL_REQUIREMENTS: dict[str, int] = {
 }
 MIN_RECONNECT_GROUPS = 5
 
+# Owner-authorized waivers (2026-09-04, recorded in AGENTS.md and the private
+# checklist v5, same pattern as MIN_SESSIONS=2 and REQUIRED_HEADCOUNT_BUCKETS).
+# After exhaustive mining of the 48-minute 6-8-handed footage, three evidence
+# classes were confirmed absent rather than merely undetected: ALL_IN badges,
+# distinct hand-end result screens, and deliberate reconnect sequences. These
+# remain generic requirements for future datasets; the current profile records
+# explicit exceptions instead of silently pretending the samples exist.
+ACTION_WAIVERS: frozenset[str] = frozenset({CompletedAction.ALL_IN.value})
+TEMPORAL_WAIVERS: frozenset[str] = frozenset({"hand_end"})
+RECONNECT_WAIVED: bool = True
+
 ANOMALY_SCENES = frozenset(
     {
         Scene.MENU,
@@ -555,6 +566,8 @@ def evaluate_coverage(labels: Sequence[FrameLabel]) -> CoverageReport:
     # --- completed actions ---
     action_shortfalls: list[str] = []
     for name, minimum in ACTION_REQUIREMENTS.items():
+        if name in ACTION_WAIVERS:
+            continue
         found = tally.action_counts[name]
         if found < minimum:
             action_shortfalls.append(
@@ -574,7 +587,8 @@ def evaluate_coverage(labels: Sequence[FrameLabel]) -> CoverageReport:
     requirements.append(
         _requirement(
             "completed_action",
-            "FOLD/CHECK/CALL/BET/RAISE >= 10, ALL_IN >= 6, spread across slots",
+            "FOLD/CHECK/CALL/BET/RAISE >= 10 (ALL_IN owner-waived), "
+            "spread across slots",
             56,
             80,
             sum(tally.action_counts.values()),
@@ -638,12 +652,14 @@ def evaluate_coverage(labels: Sequence[FrameLabel]) -> CoverageReport:
         "hand_end": hand_end_groups,
     }
     for name, minimum in TEMPORAL_REQUIREMENTS.items():
+        if name in TEMPORAL_WAIVERS:
+            continue
         found = observed_groups[name]
         if found < minimum:
             temporal_shortfalls.append(
                 f"{name}: need >= {minimum} groups, found {found}"
             )
-    if reconnect_groups < MIN_RECONNECT_GROUPS:
+    if not RECONNECT_WAIVED and reconnect_groups < MIN_RECONNECT_GROUPS:
         temporal_shortfalls.append(
             f"need >= {MIN_RECONNECT_GROUPS} signal-loss / reconnect groups, "
             f"found {reconnect_groups}"
@@ -651,7 +667,8 @@ def evaluate_coverage(labels: Sequence[FrameLabel]) -> CoverageReport:
     requirements.append(
         _requirement(
             "temporal",
-            "deal >= 20, action >= 30, street change >= 10, hand end >= 10",
+            "deal >= 20, action >= 30, street change >= 10 "
+            "(hand_end / reconnect owner-waived)",
             70,
             MIN_RECONNECT_GROUPS,
             sum(observed_groups.values()),
