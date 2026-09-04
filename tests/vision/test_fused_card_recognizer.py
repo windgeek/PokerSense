@@ -248,6 +248,15 @@ def test_production_heads_load_and_predict():
         assert 0.0 <= margin <= 1.0
 
 
+def test_production_heads_verify_expected_sha256():
+    import hashlib
+
+    digest = hashlib.sha256(HEADS.read_bytes()).hexdigest()
+    assert load_card_heads(HEADS, expected_sha256=digest)
+    with pytest.raises(ValueError, match="SHA-256 mismatch"):
+        load_card_heads(HEADS, expected_sha256="0" * 64)
+
+
 def test_load_card_heads_missing_file(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_card_heads(tmp_path / "nope.npz")

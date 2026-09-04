@@ -195,12 +195,19 @@ def _has_unknown_field(label: FrameLabel) -> bool:
     )
     if any(field.status is not LabelStatus.VALID for field in fields):
         return True
-    return any(
-        slot.stack.status is not LabelStatus.VALID
-        or slot.dealer.status is not LabelStatus.VALID
-        or slot.occupancy.status is not LabelStatus.VALID
-        for slot in label.slots
-    )
+    for slot in label.slots:
+        if slot.occupancy.status is not LabelStatus.VALID:
+            return True
+        if slot.dealer.status is not LabelStatus.VALID:
+            return True
+        # EMPTY slots legitimately have no stack value. Requiring a VALID
+        # stack there would make every table with empty seats unusable.
+        if (
+            slot.occupancy.value == "OCCUPIED"
+            and slot.stack.status is not LabelStatus.VALID
+        ):
+            return True
+    return False
 
 
 def detect_leakage(plan: SplitPlan) -> list[str]:

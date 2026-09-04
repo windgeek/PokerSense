@@ -82,7 +82,7 @@ def test_capture_card_pipeline_selects_independent_profile(monkeypatch):
     monkeypatch.setattr(live, "load_calibration", reject_uncalibrated)
 
     with pytest.raises(live.LiveCaptureError, match="uncalibrated"):
-        live.build_pipeline(source="capture-card")
+        live.build_pipeline(source="capture-card", normalization="measured")
 
     assert selected["profile"] == (
         live.CAPTURE_CARD_PLATFORM,
@@ -99,6 +99,11 @@ def test_capture_card_pipeline_rejects_foreign_profile():
         )
 
 
+def test_capture_card_pipeline_requires_measured_normalization():
+    with pytest.raises(live.LiveCaptureError, match="NormalizationConfig"):
+        live.build_pipeline(source="capture-card")
+
+
 def test_adb_pipeline_rejects_capture_card_profile():
     with pytest.raises(live.LiveCaptureError, match="ADB source"):
         live.build_pipeline(
@@ -108,9 +113,54 @@ def test_adb_pipeline_rejects_capture_card_profile():
         )
 
 
-def test_explicitly_uncalibrated_profile_fails_closed():
+def test_explicitly_uncalibrated_profile_fails_closed(tmp_path, monkeypatch):
+    platform = "test_uncalibrated"
+    layout = "test_layout"
+    platform_dir = tmp_path / "configs" / "platform"
+    vision_dir = tmp_path / "configs" / "vision" / platform
+    platform_dir.mkdir(parents=True)
+    vision_dir.mkdir(parents=True)
+    source_map = (
+        live._REPO_ROOT / "configs" / "platform"
+        / f"{live.CAPTURE_CARD_PLATFORM}__{live.CAPTURE_CARD_LAYOUT}.json"
+    )
+    platform_map = source_map.read_text(encoding="utf-8")
+    platform_map = platform_map.replace(live.CAPTURE_CARD_PLATFORM, platform)
+    platform_map = platform_map.replace(live.CAPTURE_CARD_LAYOUT, layout)
+    (platform_dir / f"{platform}__{layout}.json").write_text(
+        platform_map,
+        encoding="utf-8",
+    )
+    (vision_dir / "calibration.json").write_text(
+        '{"status":"uncalibrated"}',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(live, "_REPO_ROOT", tmp_path)
+
     with pytest.raises(live.LiveCaptureError, match="explicitly uncalibrated"):
+        live.load_calibration(platform, layout)
+
+
+def test_capture_card_profile_rejects_invalid_fused_model(monkeypatch):
+    def reject_model(*args, **kwargs):
+        raise ValueError("bad model")
+
+    monkeypatch.setattr(live, "load_card_heads", reject_model)
+    with pytest.raises(live.LiveCaptureError, match="integrity validation"):
         live.load_calibration(
             live.CAPTURE_CARD_PLATFORM,
             live.CAPTURE_CARD_LAYOUT,
         )
+
+
+def test_capture_card_profile_loads_verified_fused_recognizer():
+    from poker_engine.perceptual.vision.fused_card_adapter import (
+        FusedCardRecognizerAdapter,
+    )
+
+    table_map, vision = live.load_calibration(
+        live.CAPTURE_CARD_PLATFORM,
+        live.CAPTURE_CARD_LAYOUT,
+    )
+    assert table_map.platform_id == live.CAPTURE_CARD_PLATFORM
+    assert isinstance(vision._card, FusedCardRecognizerAdapter)

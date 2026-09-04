@@ -34,6 +34,15 @@ def test_normalization_config_rejects_empty_crop():
         )
 
 
+@pytest.mark.parametrize(
+    "crop",
+    [(-1, 0, 10, 10), (0.5, 0, 10, 10), (False, 0, 10, 10)],
+)
+def test_normalization_config_rejects_invalid_crop_coordinates(crop):
+    with pytest.raises((TypeError, ValueError)):
+        NormalizationConfig(rotate_degrees=0, crop_after_rotation=crop)
+
+
 def test_normalization_config_rejects_invalid_color_transform():
     with pytest.raises(ValueError):
         NormalizationConfig(rotate_degrees=0, color_transform="auto")
@@ -54,6 +63,13 @@ def test_normalization_config_rejects_unsupported_schema():
     with pytest.raises(ValueError):
         NormalizationConfig.from_dict(
             {"schema_version": 99, "rotate_degrees": 0}
+        )
+
+
+def test_normalization_config_rejects_non_boolean_mirror():
+    with pytest.raises(TypeError, match="mirror_horizontal"):
+        NormalizationConfig.from_dict(
+            {"rotate_degrees": 0, "mirror_horizontal": "false"}
         )
 
 
@@ -275,8 +291,9 @@ def test_parse_device_index_forms():
 def test_capture_card_platform_calibration_state():
     """Cards are calibrated (gray-fused-mlp-v3); legacy path stays closed.
 
-    The platform graduated from the uncalibrated scaffold on 2026-09-04:
-    the fused card measurement is real evidence, but the legacy
+    The card field graduated from the uncalibrated scaffold on 2026-09-04;
+    the overall profile remains partial. The fused card measurement is real
+    evidence, but the legacy
     single-frame card path must remain fail-closed (floor=1.0) so nothing
     can accidentally serve the old matcher with a loosened gate, and no
     geometry/threshold may be inherited from LDPlayer/H5.
@@ -288,7 +305,7 @@ def test_capture_card_platform_calibration_state():
     vision = repo_root / "configs" / "vision" / "wepoker_android_capture_card"
     data = json.loads((vision / "calibration.json").read_text(encoding="utf-8"))
     assert data["platform_id"] == "wepoker_android_capture_card"
-    assert data["status"] == "calibrated"
+    assert data["status"] == "partial"
     # legacy single-frame template source stays "wepoker" (guide rule 2:
     # card ART templates may be shared after independent verification); the
     # fused pipeline uses its own card_heads.npz, not these templates.

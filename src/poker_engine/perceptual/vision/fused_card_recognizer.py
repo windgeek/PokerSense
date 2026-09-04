@@ -35,6 +35,7 @@ locked validation 116/116, zero false VALID for the full card.
 from __future__ import annotations
 
 import json
+import hashlib
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
@@ -184,30 +185,79 @@ class MlpHead:
         return self.classes[int(order[0])], margin
 
 
-def load_card_heads(path: Path | str) -> dict[str, MlpHead]:
+def load_card_heads(
+    path: Path | str,
+    *,
+    expected_sha256: str | None = None,
+) -> dict[str, MlpHead]:
     """Load rank + suit_red + suit_black heads from an npz (fail closed)."""
     source = Path(path)
     meta_path = source.with_suffix(".json")
     if not source.is_file() or not meta_path.is_file():
         raise FileNotFoundError(f"card heads missing at {source}")
+    if expected_sha256 is not None:
+        if (
+            not isinstance(expected_sha256, str)
+            or len(expected_sha256) != 64
+            or any(char not in "0123456789abcdef" for char in expected_sha256.lower())
+        ):
+            raise ValueError("expected_sha256 must be a 64-character hex digest")
+        digest = hashlib.sha256(source.read_bytes()).hexdigest()
+        if digest != expected_sha256.lower():
+            raise ValueError(
+                f"card heads SHA-256 mismatch: expected {expected_sha256}, "
+                f"got {digest}"
+            )
     meta = json.loads(meta_path.read_text(encoding="utf-8"))
     if meta.get("format") != "mlp-v1":
         raise ValueError("unsupported card heads format")
-    data = np.load(source)
+    if meta.get("norm") != list(NORM) or meta.get("glyph_h") != GLYPH_H:
+        raise ValueError("card heads normalization metadata mismatch")
     heads: dict[str, MlpHead] = {}
-    for name, info in meta["heads"].items():
-        heads[name] = MlpHead(
-            w1=data[f"{name}__w1"],
-            b1=data[f"{name}__b1"],
-            w2=data[f"{name}__w2"],
-            b2=data[f"{name}__b2"],
-            classes=tuple(str(c) for c in data[f"{name}__classes"]),
-            out_activation=str(info["out_activation"]),
-        )
+    try:
+        with np.load(source, allow_pickle=False) as data:
+            for name, info in meta["heads"].items():
+                classes = tuple(str(c) for c in data[f"{name}__classes"])
+                if classes != tuple(info.get("classes", ())):
+                    raise ValueError(f"card head {name!r} class metadata mismatch")
+                head = MlpHead(
+                    w1=data[f"{name}__w1"],
+                    b1=data[f"{name}__b1"],
+                    w2=data[f"{name}__w2"],
+                    b2=data[f"{name}__b2"],
+                    classes=classes,
+                    out_activation=str(info["out_activation"]),
+                )
+                _validate_head(name, head)
+                heads[name] = head
+    except (KeyError, TypeError) as exc:
+        raise ValueError("malformed card heads artifact") from exc
     missing = {"rank", "suit_red", "suit_black"} - set(heads)
     if missing:
         raise ValueError(f"card heads incomplete: {sorted(missing)}")
     return heads
+
+
+def _validate_head(name: str, head: MlpHead) -> None:
+    """Reject malformed tensor shapes and non-finite model parameters."""
+    hidden = head.w1.shape[1] if head.w1.ndim == 2 else -1
+    expected_outputs = 1 if head.out_activation == "logistic" else len(head.classes)
+    if head.out_activation not in {"softmax", "logistic"}:
+        raise ValueError(f"card head {name!r} has unsupported activation")
+    if (
+        head.w1.shape != (NORM[0] * NORM[1], hidden)
+        or head.b1.shape != (hidden,)
+        or head.w2.shape != (hidden, expected_outputs)
+        or head.b2.shape != (expected_outputs,)
+        or hidden <= 0
+        or len(head.classes) < 2
+    ):
+        raise ValueError(f"card head {name!r} has invalid tensor shapes")
+    if not all(
+        np.isfinite(array).all()
+        for array in (head.w1, head.b1, head.w2, head.b2)
+    ):
+        raise ValueError(f"card head {name!r} contains non-finite parameters")
 
 
 class FusedSlotBuffer:

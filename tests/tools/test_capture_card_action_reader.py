@@ -188,6 +188,14 @@ def test_empty_templates_fail_closed():
     assert fv.status is LabelStatus.UNKNOWN
 
 
+def test_ambiguous_same_family_templates_fail_closed():
+    img = _pill_image("RAISE")
+    templates = _templates()
+    templates["BET"] = templates["RAISE"].copy()
+    fv = ar.read_action_badge(0, img, _LAYOUT, templates)
+    assert fv.status is LabelStatus.UNKNOWN
+
+
 def test_read_action_fields_shapes():
     img = _pill_image("RAISE")
     out = ar.read_action_fields(img, _LAYOUT, _templates(), slots=[0])

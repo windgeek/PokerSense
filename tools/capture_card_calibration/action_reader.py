@@ -132,6 +132,10 @@ _BAND_SIDE = 0.20
 #: of 0.62 keeps every confirmed action while it screens the residual noisy
 #: reads.
 _TEMPLATE_TOP1_MIN = 0.62
+# The measured own-vs-other gap is at least 0.29. Requiring a conservative
+# runner-up margin prevents two near-identical templates from turning an
+# ambiguous badge into a confident action.
+_TEMPLATE_MARGIN_MIN = 0.10
 
 #: Resize shape for a normalised glyph before correlating.
 _GLYPH_W = 36
@@ -338,7 +342,7 @@ def read_action_badge(
         "green": ["CHECK", "BET"],
     }
 
-    best: tuple[str, float] | None = None
+    candidates: list[tuple[str, float]] = []
     seen_families: set[str] = set()
     for family, actions in family_actions.items():
         loc = _find_pill(band, family)
@@ -355,11 +359,17 @@ def read_action_badge(
             if tmpl is None or np.allclose(tmpl, 0):
                 continue
             score = _ncc(g, tmpl)
-            if best is None or score > best[1]:
-                best = (act, score)
+            candidates.append((act, score))
 
-    if best is None or best[1] < _TEMPLATE_TOP1_MIN:
+    candidates.sort(key=lambda item: item[1], reverse=True)
+    if not candidates or candidates[0][1] < _TEMPLATE_TOP1_MIN:
         return FieldValue.unknown()
+    if (
+        len(candidates) > 1
+        and candidates[0][1] - candidates[1][1] < _TEMPLATE_MARGIN_MIN
+    ):
+        return FieldValue.unknown()
+    best = candidates[0]
     try:
         action = CompletedAction(best[0])
     except ValueError:

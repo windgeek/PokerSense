@@ -49,6 +49,12 @@ changing desktop capture, recognition, packaging, or project documentation.
   deduplicated and become canonical events only when actor stack delta and pot
   evidence are coherent. Opponent current-turn timers and complex missed-action/
   side-pot sequences remain unavailable without additional measured Replay.
+- The candidate capture-card profile is **partial and unreleased**. Its
+  independent 498x1080 geometry, seat mapping, and temporally fused Hero/Board
+  card model are committed, but no production normalization artifact is
+  committed and capture-card seat/action recognizers are not wired into
+  `VisionEngine`. Those fields remain UNKNOWN; the default desktop path is
+  still LDPlayer/ADB.
 - Capture frames are memory-only. The only persistent user setting is UI
   language (`auto`, `en`, or `zh`).
 
@@ -133,6 +139,26 @@ structure; do not represent a local build as a clean-user installation test.
   policy-default change requires a fresh measured artifact and tool hash.
 
 ## Progress log
+
+- **2026-09-04 — capture-card vision integration review:** reviewed the new
+  `feat/capture-card-toolchain`, `feat/action-badge`, and consolidated
+  `feat/capture-card-vision-complete` branches. Accepted the independent seat
+  mapping, fused card model/adapter, and calibration-time action reader, then
+  fixed the consolidated branch before integration: model loading now verifies
+  the calibration-pinned SHA-256 plus metadata/tensor structure and aborts on
+  failure instead of falling back to the legacy matcher with fused thresholds;
+  capture-card startup requires an explicit measured `NormalizationConfig`
+  while no production normalization artifact is committed; action badges reject
+  an ambiguous top-two template match; and the previously reviewed EMPTY-slot
+  stack semantics and owner-recorded coverage waivers were restored after the
+  consolidated commit had overwritten them. The platform manifest and docs now
+  say `partial`, accurately limiting production recognition to fused cards and
+  keeping seat/action fields UNKNOWN. Added regression tests. The full suite
+  passed 2,192 tests with 3 platform skips (2,195 collected); repository-wide
+  Flake8 and diff checks passed. Remaining release blockers are the committed
+  normalization artifact, production seat/action wiring with independent
+  calibration blocks, privacy-reviewed raw-frame Replay, live hardware testing,
+  and packaging/clean-install evidence.
 
 - **2026-09-03 — capture-card branch review hardening:** reviewed the eight
   commits on `feat/capture-card-toolchain` before integration. Fixed a source/

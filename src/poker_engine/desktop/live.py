@@ -376,9 +376,15 @@ def load_calibration(
     if not calibration_path.is_file():
         raise LiveCaptureError(f"no calibration measurement at {calibration_path}")
     calibration_data = json.loads(calibration_path.read_text())
-    if calibration_data.get("status") == "uncalibrated":
+    calibration_status = calibration_data.get("status")
+    if calibration_status == "uncalibrated":
         raise LiveCaptureError(
             f"recognition profile {platform}/{layout} is explicitly uncalibrated"
+        )
+    if calibration_status not in {None, "partial", "calibrated"}:
+        raise LiveCaptureError(
+            f"recognition profile {platform}/{layout} has invalid status "
+            f"{calibration_status!r}"
         )
     template_source = calibration_data.get("template_source", platform)
     template_dir = _REPO_ROOT / "configs" / "vision" / template_source
@@ -400,26 +406,29 @@ def load_calibration(
     # legacy (fail-closed, floor=1.0) path rather than half-wiring the fused
     # pipeline — a missing model file must never silently downgrade to a
     # loosened single-frame gate.
-    fused_meta = vision_dir / "card_heads.json"
     fused_card_pipeline = False
-    if fused_meta.is_file():
-        fused_data = json.loads((vision_dir / "calibration.json").read_text())
-        if "card_fused" in fused_data:
-            try:
-                heads = load_card_heads(vision_dir / "card_heads.npz")
-                calibrated = fused_data["card_fused"]
-                card_recognizer = FusedCardRecognizerAdapter(
-                    FusedCardRecognizer(
-                        heads,
-                        rank_floor=calibrated.get("rank_floor", 0.0),
-                        suit_floor=calibrated.get("suit_floor", 0.3),
-                    )
-                )
-                fused_card_pipeline = True
-            except (FileNotFoundError, ValueError, OSError):
-                # Keep the legacy fail-closed recognizer; the platform stays
-                # UNKNOWN on cards rather than guessing.
-                pass
+    calibrated = calibration_data.get("card_fused")
+    if calibrated is not None:
+        model_name = calibrated.get("models")
+        if not isinstance(model_name, str) or Path(model_name).name != model_name:
+            raise LiveCaptureError("invalid fused-card model path in calibration")
+        try:
+            heads = load_card_heads(
+                vision_dir / model_name,
+                expected_sha256=calibrated.get("models_sha256"),
+            )
+        except (FileNotFoundError, ValueError, OSError) as exc:
+            raise LiveCaptureError(
+                f"fused-card model failed integrity validation: {exc}"
+            ) from exc
+        card_recognizer = FusedCardRecognizerAdapter(
+            FusedCardRecognizer(
+                heads,
+                rank_floor=calibrated.get("rank_floor", 0.0),
+                suit_floor=calibrated.get("suit_floor", 0.3),
+            )
+        )
+        fused_card_pipeline = True
 
     board_layout_path = vision_dir / "board_slot_layout.json"
     if board_layout_path.is_file():
@@ -637,6 +646,11 @@ def build_pipeline(
             raise LiveCaptureError(
                 "capture-card source requires the independent "
                 f"{CAPTURE_CARD_PLATFORM!r} recognition profile"
+            )
+        if normalization is None:
+            raise LiveCaptureError(
+                "capture-card source requires its measured NormalizationConfig; "
+                "no production normalization artifact is committed yet"
             )
     elif source == "adb" and platform == CAPTURE_CARD_PLATFORM:
         raise LiveCaptureError(
