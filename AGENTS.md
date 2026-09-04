@@ -140,6 +140,16 @@ structure; do not represent a local build as a clean-user installation test.
 
 ## Progress log
 
+- **2026-09-04 — WorkBuddy/K3 hardware-closure handoff:** added
+  `TASK-capture-card-workbuddy-k3.zh-CN.md`, a directly executable handoff for
+  the collaborator who holds the real Samsung/UGREEN capture chain. It freezes
+  branch and privacy rules, separates human hardware actions from agent work,
+  and makes production normalization, seat/action VisionEngine wiring,
+  raw-frame Replay, 30-minute reliability evidence, packaging, hashes, and an
+  exact return report mandatory. It preserves the owner-approved two-session
+  and hard-to-observe coverage exceptions without allowing them to waive
+  hardware validation. Documentation-only; `git diff --check` passed.
+
 - **2026-09-04 — capture-card vision integration review:** reviewed the new
   `feat/capture-card-toolchain`, `feat/action-badge`, and consolidated
   `feat/capture-card-vision-complete` branches. Accepted the independent seat
